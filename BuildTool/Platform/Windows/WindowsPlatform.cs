@@ -485,8 +485,12 @@ namespace Beast.BuildTool
 
             }
 
+            // With the release CRT (clang-cl ASan in Debug), _DEBUG would make the STL call the
+            // debug-CRT-only _CrtDbgReport.
+            bool releaseCrtInDebug = Environment.UseDebugCRT && UsesClangCl && Environment.Sanitizers.HasFlag(Sanitizer.Address);
             foreach (var definition in Environment.PreprocessorDefinitions)
-                CommonArgs.Add("/D " + CommandUtilities.QuoteArgument(definition));
+                if (!(releaseCrtInDebug && definition == "_DEBUG"))
+                    CommonArgs.Add("/D " + CommandUtilities.QuoteArgument(definition));
 
             foreach (var includePath in Environment.IncludePaths)
                 AddIncludePath(CommonArgs, includePath, false);
