@@ -1,0 +1,22 @@
+[Bb]in/
+[Oo]bj/
+Binaries/
+Intermediate/
+.vs/
+*.user
+*.suo
+.gradle/
+.cxx/
+**/Platforms/Android/**/build/
+**/Platforms/Android/app/src/main/jniLibs/
+local.properties
+/Tests/Generated/
+/Generated/
+*.jks
+*.keystore
+*.pfx
+*.p12
+.env
+**/Config/Signing/
+# Reference sources are not part of the distributable Beast tool.
+/Prototypes/

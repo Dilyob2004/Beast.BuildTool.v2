@@ -1,0 +1,47 @@
+// Beast BuildTool Windows application resources.
+// This file is copied to Platforms/Windows/Resources/<ProjectName>.rc for every new project.
+
+#define IDI_APPLICATION_ICON 101
+#define IDR_APPLICATION_MANIFEST 1
+
+IDI_APPLICATION_ICON ICON "Default.ico"
+
+// The build tool supplies BEAST_DPI_AWARE from Config/BuildConfig.json.
+#if BEAST_DPI_AWARE
+IDR_APPLICATION_MANIFEST 24 "Default-Win64-dpiaware.manifest"
+#else
+IDR_APPLICATION_MANIFEST 24 "Default-Win64.manifest"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x00040004L
+ FILETYPE 0x00000001L
+ FILESUBTYPE 0x00000000L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "{{COMPANY_NAME}}"
+            VALUE "FileDescription", "{{PROJECT_NAME}}"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "{{PROJECT_NAME}}"
+            VALUE "LegalCopyright", "Copyright (c) {{COMPANY_NAME}}"
+            VALUE "OriginalFilename", "{{PROJECT_NAME}}.exe"
+            VALUE "ProductName", "{{PROJECT_NAME}}"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

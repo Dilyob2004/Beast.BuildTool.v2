@@ -1,0 +1,98 @@
+# Beast BuildTool CI: Windows, Linux (with an APK built on Linux) and macOS.
+name: Beast BuildTool
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build tool
+        run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+      - name: BuildGraphTests
+        run: dotnet run --project Tests/BuildGraphTests/BuildGraphTests.csproj -c Release
+      - name: ModelTests
+        run: dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
+      - name: Smoke
+        run: ./Tests/Smoke.ps1
+      - name: Targets
+        run: ./Tests/Targets.ps1
+      - name: CompilationModes
+        run: ./Tests/CompilationModes.ps1
+      - name: Features
+        run: ./Tests/Features.ps1 -SkipPackages
+      - name: Test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-generated
+          path: Tests/Generated
+          if-no-files-found: ignore
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Toolchain
+        # Clang 18 with lld (ThinLTO) and the sanitizer runtimes; GCC 13; CMake and pkg-config.
+        run: sudo apt-get update && sudo apt-get install -y clang lld libclang-rt-18-dev g++ cmake pkg-config unzip
+      - name: Build tool
+        run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+      - name: BuildGraphTests
+        run: dotnet run --project Tests/BuildGraphTests/BuildGraphTests.csproj -c Release
+      - name: ModelTests
+        run: dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
+      - name: Linux and Android (APK built on Linux)
+        # The runner image provides ANDROID_HOME and ANDROID_NDK_LATEST_HOME.
+        run: bash Tests/Unix.sh --android
+      - name: Test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-generated
+          path: Tests/Generated
+          if-no-files-found: ignore
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build tool
+        run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+      - name: BuildGraphTests
+        run: dotnet run --project Tests/BuildGraphTests/BuildGraphTests.csproj -c Release
+      - name: ModelTests
+        run: dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
+      - name: macOS (Apple clang)
+        run: bash Tests/Unix.sh
+      - name: Test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-generated
+          path: Tests/Generated
+          if-no-files-found: ignore

@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Beast.BuildTool": {
+      "commandName": "Project",
+      "commandLineArgs": "help"
+    }
+  }
+}
