@@ -66,6 +66,8 @@ public sealed class MacBuildConfig
     [JsonPropertyName("deploymentTarget")] public string DeploymentTarget { get; set; } = "11.0";
     /// <summary>Explicit SDK path; empty: xcrun --sdk macosx --show-sdk-path.</summary>
     [JsonPropertyName("sdkRoot")] public string SdkRoot { get; set; } = "";
+    /// <summary>Explicit C++ driver, e.g. Homebrew LLVM's clang++ (needed for C++20 modules); empty: Apple clang.</summary>
+    [JsonPropertyName("cxx")] public string Cxx { get; set; } = "";
     /// <summary>Bundle identifier of .app bundles; empty: com.beast.&lt;target&gt;.</summary>
     [JsonPropertyName("bundleIdentifier")] public string BundleIdentifier { get; set; } = "";
     /// <summary>Code signing identity for codesign; empty: ad-hoc ("-") signature.</summary>

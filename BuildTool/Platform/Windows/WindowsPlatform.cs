@@ -47,6 +47,7 @@ namespace Beast.BuildTool
         /// <summary>x64 keeps the historical "Windows" directory names; ARM64 builds use "WindowsArm64".</summary>
         public override string PlatformName => Architecture == PlatformArch.ARM64 ? "WindowsArm64" : "Windows";
         public override string? ModuleInterfaceExtension => UsesClangCl ? null : ".ifc";
+        public override string ModulesUnsupportedReason => "clang-cl is not supported yet; use windows.compiler \"msvc\"";
         public override bool CanRunOnHost => HostPlatform.IsWindows && (Architecture != PlatformArch.ARM64 || HostPlatform.IsArm64);
 
 

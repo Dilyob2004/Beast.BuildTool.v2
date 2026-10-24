@@ -46,6 +46,8 @@ namespace Beast.BuildTool
         public virtual bool CanRunOnHost => false;
         /// <summary>BMI file extension of C++20 modules (.ifc, .pcm, .gcm); null when the compiler is not supported.</summary>
         public virtual string? ModuleInterfaceExtension => null;
+        /// <summary>Why C++20 modules are unavailable (when ModuleInterfaceExtension is null).</summary>
+        public virtual string ModulesUnsupportedReason => $"the {PlatformName} toolchain does not support them";
         /// <summary>The program file of an application target in <paramref name="binaries"/>.</summary>
         public virtual string ExecutablePath(string binaries, string target) => System.IO.Path.Combine(binaries, target + ExecutableFileExtension);
 

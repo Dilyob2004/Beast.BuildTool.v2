@@ -383,11 +383,12 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
 ### macOS
 
 ```json
-"mac": { "deploymentTarget": "11.0", "sdkRoot": "", "bundleIdentifier": "", "signingIdentity": "" }
+"mac": { "deploymentTarget": "11.0", "sdkRoot": "", "cxx": "", "bundleIdentifier": "", "signingIdentity": "" }
 ```
 
 - Компилятор, `libtool`, `dsymutil` и SDK находятся через `xcrun` (Xcode или Command Line Tools);
-  `sdkRoot` задаёт SDK явно, `deploymentTarget` — `-mmacosx-version-min`. Архитектура по умолчанию —
+  `sdkRoot` задаёт SDK явно, `deploymentTarget` — `-mmacosx-version-min`, `cxx` — другой Clang
+  (например, Homebrew LLVM для модулей C++20) с тем же SDK. Архитектура по умолчанию —
   архитектура Mac; `--arch x64` собирает Intel-версию в `MacX64` (она запускается и через Rosetta 2).
 - `.dylib` называются `@rpath/lib<Name>.dylib`, программы и библиотеки ищут их в `@loader_path` и
   `@loader_path/../lib`. Development/Release получают `.dSYM` рядом с продуктом (`dsymutil`), Debug
@@ -513,7 +514,7 @@ module;                       // глобальный фрагмент: #include
 #include <cstdio>
 export module Geometry;
 export import :Shapes;        // раздел-интерфейс (Shapes.cppm: export module Geometry:Shapes;)
-import :Detail;               // внутренний раздел (Detail.cppm: module Geometry:Detail;)
+import :Detail;               // внутренний раздел (Detail.cpp: module Geometry:Detail;)
 export int Area(int w, int h);
 
 // Source/Geometry/Area.cpp — единица реализации
@@ -525,14 +526,17 @@ import Geometry;
 ```
 
 - Компиляторы: MSVC (`/interface`, `/internalPartition`, `/ifcOutput`, `/reference`), Clang 16+
-  (`-fmodule-output`, `-fmodule-file=`; в том числе Android NDK и Apple clang), GCC 11+
-  (`-fmodules-ts` и файл module mapper). clang-cl пока не поддерживается.
+  (`-fmodule-output`, `-fmodule-file=`; в том числе Android NDK), GCC 11+ (`-fmodules-ts` и файл
+  module mapper). Не поддерживаются clang-cl и Apple clang (в нём нет именованных модулей): на macOS
+  для модулей задайте LLVM из Homebrew — `"mac": { "cxx": "/opt/homebrew/opt/llvm/bin/clang++" }`.
 - BMI (`.ifc`/`.pcm`/`.gcm`) пишутся в `Intermediate/Build/.../<target>/Modules/`. Модуль, собранный
   целью-зависимостью (`TargetDependencies`), импортируется из её каталога; его объекты линкуются из её
   библиотеки. Каждой единице передаются BMI всех модулей, которые она импортирует, транзитивно.
 - Импортировать можно модули своего каталога-модуля и его `PublicDependencies`/`PrivateDependencies`
   (с их публичными зависимостями); иначе ошибка с подсказкой, какую зависимость добавить. Также
   ошибки: неизвестный модуль, два объявления одного модуля, `.ixx`/`.cppm` без объявления модуля.
+  `.ixx`/`.cppm` — только для `export module` (интерфейсы и разделы-интерфейсы); внутренние разделы
+  (`module X:P;`) и единицы реализации (`module X;`) — в `.cpp`: MSVC иначе отказывается (C7622).
 - Изменение интерфейса пересобирает импортирующие единицы; изменение единицы реализации — только её.
   Единицы модулей не входят в Unity и не используют PCH.
 - Не поддерживаются: header units (`import <vector>;`), `import std;`, модули в старом режиме без

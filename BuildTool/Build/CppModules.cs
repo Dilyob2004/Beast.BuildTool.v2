@@ -66,6 +66,10 @@ public static partial class CppModules
         }
         if (name == null && IsInterfaceExtension(path))
             throw new InvalidOperationException($"{path}: a .ixx/.cppm file must declare a module (export module Name;).");
+        // MSVC rejects an internal partition in an interface file (C7622); keep projects portable.
+        if (name != null && !exported && IsInterfaceExtension(path))
+            throw new InvalidOperationException($"{path}: '{(partition != null ? $"module {name}:{partition};" : $"module {name};")}' is not an interface; " +
+                "put internal partitions and implementation units in .cpp files (.ixx/.cppm are for 'export module').");
         var imports = new List<string>();
         foreach (Match match in ImportDeclaration().Matches(code))
         {
@@ -182,7 +186,7 @@ public sealed class CppModulePlan
                 if (local) plan._anyConsumers = true;
                 if (!info.ProducesInterface) continue;
                 string extension = platform.ModuleInterfaceExtension
-                    ?? throw new InvalidOperationException($"{source}: C++20 modules are not supported by the {platform.PlatformName} compiler configuration (clang-cl). Use MSVC, Clang or GCC.");
+                    ?? throw new InvalidOperationException($"{source}: C++20 modules are not available: {platform.ModulesUnsupportedReason}.");
                 string bmi = Path.Combine(model.BuildDirectory(platform.PlatformName, configuration, owner.Name), "Modules", CppModules.InterfaceFileName(info.FullName!, extension));
                 if (plan._providers.TryGetValue(info.FullName!, out var existing))
                     throw new InvalidOperationException($"Module '{info.FullName}' is declared twice: {existing.Source} and {source}.");

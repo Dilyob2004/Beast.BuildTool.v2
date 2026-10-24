@@ -23,13 +23,35 @@ public sealed class MacPlatform : UnixPlatform
     public string SdkRoot { get; }
     public string DeploymentTarget { get; }
     private readonly string _dsymutil;
+    private readonly bool _appleClang;
+
+    /// <summary>Apple clang does not implement C++20 named modules (the keywords are not recognized).</summary>
+    public override string? ModuleInterfaceExtension => _appleClang ? null : ".pcm";
+    public override string ModulesUnsupportedReason =>
+        "Apple clang does not support C++20 named modules; install LLVM (brew install llvm) and set \"mac\": { \"cxx\": \"/opt/homebrew/opt/llvm/bin/clang++\" }";
+
+    private static bool IsAppleClang(string compiler)
+    {
+        try
+        {
+            var info = new ProcessStartInfo(compiler, "--version") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            using var process = Process.Start(info)!;
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            return output.Contains("Apple clang", StringComparison.Ordinal);
+        }
+        catch (System.ComponentModel.Win32Exception) { return true; }
+    }
 
     public MacPlatform(PlatformArch architecture = PlatformArch.ARM64) : base(architecture)
     {
         if (!HostPlatform.IsMacOS)
             throw new PlatformNotSupportedException("macOS targets require a Mac with Xcode or the Command Line Tools (xcode-select --install).");
         var settings = BuildConfigManager.Config.Mac;
-        Compiler = Xcrun("--find", "clang++");
+        // mac.cxx: another Clang (e.g. Homebrew LLVM, which supports C++20 modules) with the Xcode SDK.
+        Compiler = string.IsNullOrWhiteSpace(settings.Cxx) ? Xcrun("--find", "clang++")
+            : UnixPlatform.FindOnPath(Environment.ExpandEnvironmentVariables(settings.Cxx)) ?? throw new FileNotFoundException("mac.cxx was not found.", settings.Cxx);
+        _appleClang = IsAppleClang(Compiler);
         Archiver = Xcrun("--find", "libtool");
         _dsymutil = Xcrun("--find", "dsymutil");
         SdkRoot = string.IsNullOrWhiteSpace(settings.SdkRoot) ? Xcrun("--show-sdk-path") : Environment.ExpandEnvironmentVariables(settings.SdkRoot);

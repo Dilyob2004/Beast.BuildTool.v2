@@ -218,18 +218,20 @@ Test("C++20 module scanning and graph", () =>
     Check(info.Imports.SequenceEqual(new[] { "Math:Ops", "Core.Text" }), "imports: " + string.Join(", ", info.Imports));
     var impl = CppModules.Parse("module Math;\nint f();", "Impl.cpp");
     Check(!impl.ProducesInterface && impl.Requires.SequenceEqual(new[] { "Math" }), "implementation unit");
-    var partition = CppModules.Parse("module Math:Detail;", "Detail.cppm");
+    var partition = CppModules.Parse("module Math:Detail;", "Detail.cpp");
     Check(partition.FullName == "Math:Detail" && partition.ProducesInterface && !partition.Exported, "internal partition");
     Check(!CppModules.Parse("#include <vector>\nint important = 1; // module\n", "A.cpp").UsesModules, "false positive");
     Expect(() => CppModules.Parse("import <vector>;", "A.cpp"), "header units");
     Expect(() => CppModules.Parse("int x;", "Empty.ixx"), "must declare a module");
+    Expect(() => CppModules.Parse("module Math:Detail;", "Detail.ixx"), "internal partitions and implementation units in .cpp");
+    Expect(() => CppModules.Parse("module Math;", "Impl.cppm"), "is not an interface");
 
     string mods = Path.Combine(root, "Mods");
     Write(Path.Combine(mods, "Config", "BuildConfig.json"), "{}");
     Write(Path.Combine(mods, "Source", "Geo", "Geo.Build.cs"), Module("Geo"));
     Write(Path.Combine(mods, "Source", "Geo", "Geo.cppm"), "export module Geo;\nexport import :Shapes;\nimport :Detail;\nexport int Area();\n");
     Write(Path.Combine(mods, "Source", "Geo", "Shapes.cppm"), "export module Geo:Shapes;\n");
-    Write(Path.Combine(mods, "Source", "Geo", "Detail.cppm"), "module Geo:Detail;\n");
+    Write(Path.Combine(mods, "Source", "Geo", "Detail.cpp"), "module Geo:Detail;\n");
     Write(Path.Combine(mods, "Source", "Geo", "Area.cpp"), "module Geo;\nint Area() { return 1; }\n");
     Write(Path.Combine(mods, "Source", "App", "App.Build.cs"), Module("App", "PrivateDependencies.Add(\"Geo\");"));
     Write(Path.Combine(mods, "Source", "App", "Main.cpp"), "import Geo;\nint main() { return Area(); }\n");

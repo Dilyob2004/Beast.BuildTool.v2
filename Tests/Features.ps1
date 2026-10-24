@@ -85,7 +85,7 @@ Target 'AsmDemo' 'Modules.Add("AsmMain");'
 Module 'Geo' ''
 Put 'Source/Geo/Geo.ixx' "export module Geo;`nexport import :Shapes;`nimport :Detail;`nexport int Area(int w, int h);`nexport int Scaled(int v) { return v * Factor(); }`n"
 Put 'Source/Geo/Shapes.ixx' "export module Geo:Shapes;`nexport struct Rect { int w, h; };`n"
-Put 'Source/Geo/Detail.ixx' "module Geo:Detail;`nint Factor() { return 2; }`n"
+Put 'Source/Geo/Detail.cpp' "module Geo:Detail;`nint Factor() { return 2; }`n"
 Put 'Source/Geo/Area.cpp' "module Geo;`nint Area(int w, int h) { Rect r{w, h}; return r.w * r.h; }`n"
 Target 'GeoLib' 'Type = TargetType.StaticLibrary; Modules.Add("Geo");'
 Module 'ModMain' 'PrivateDependencies.Add("Geo");'

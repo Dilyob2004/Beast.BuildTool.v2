@@ -46,6 +46,10 @@ EOF
 bin() { echo "$project/Binaries/$platform/$1"; }
 mtime() { if [[ $os == Mac ]]; then stat -f %m "$1"; else stat -c %Y "$1"; fi; }
 
+# Apple clang does not implement C++20 named modules: the main run builds without them, and a later
+# group repeats the module build with Homebrew LLVM (mac.cxx) when it is installed.
+modules=1
+if [[ $os == Mac ]]; then modules=0; export DEMO_MODULES=0; fi
 mkdir -p "$work"
 beast new Demo --path "$work"
 rm -rf "$project/Source"
@@ -109,18 +113,25 @@ export int Area(int w, int h);
 export int Scaled(int v) { return v * Factor(); }'
 put Source/Geometry/Shapes.cppm 'export module Geometry:Shapes;
 export struct Rect { int w, h; };'
-put Source/Geometry/Detail.cppm 'module Geometry:Detail;
+put Source/Geometry/Detail.cpp 'module Geometry:Detail;
 int Factor() { return 2; }'
 put Source/Geometry/Area.cpp 'module Geometry;
 int Area(int w, int h) { Rect r{w, h}; return r.w * r.h; }'
-module Launch 'PrivateDependencies.Add("Core"); PrivateDependencies.Add("Util"); PrivateDependencies.Add("Geometry");'
+# DEMO_MODULES=0 (Apple clang) builds the same program without modules: ModuleAnswer() then
+# comes from NoModules/Answer.cpp instead of Modules/Answer.cpp, which imports Geometry.
+modules_enabled='System.Environment.GetEnvironmentVariable("DEMO_MODULES") != "0"'
+module Launch "PrivateDependencies.Add(\"Core\"); PrivateDependencies.Add(\"Util\");
+    if ($modules_enabled) { PrivateDependencies.Add(\"Geometry\"); ExcludedSources.Add(\"NoModules\"); } else ExcludedSources.Add(\"Modules\");"
 put Source/Launch/Main.cpp '#include <cstdio>
 #include "Core.h"
 #include "Util.h"
-import Geometry;
-int main() { std::printf("%d %d %d %d\n", CoreAnswer(), Twice(21), Asm40() + 2, Area(3, 7) * Scaled(1) / 1); return PlatformTag() == 0; }'
+int ModuleAnswer();
+int main() { std::printf("%d %d %d %d\n", CoreAnswer(), Twice(21), Asm40() + 2, ModuleAnswer()); return PlatformTag() == 0; }'
+put Source/Launch/Modules/Answer.cpp 'import Geometry;
+int ModuleAnswer() { return Area(3, 7) * Scaled(1); }'
+put Source/Launch/NoModules/Answer.cpp 'int ModuleAnswer() { return 42; }'
 target Engine 'Type = TargetType.SharedLibrary; Modules.Add("Core"); Version = "1.2.0";'
-target Tools 'Type = TargetType.StaticLibrary; Modules.Add("Util"); Modules.Add("Geometry");'
+target Tools "Type = TargetType.StaticLibrary; Modules.Add(\"Util\"); if ($modules_enabled) Modules.Add(\"Geometry\");"
 target Game 'Modules.Add("Launch"); TargetDependencies.Add("Engine"); TargetDependencies.Add("Tools"); LinkTimeOptimization = true;'
 module TestsMain 'PrivateDependencies.Add("Core");'
 put Source/TestsMain/Tests.cpp '#include <cstring>
@@ -160,7 +171,7 @@ else
     check '[[ -d "$(bin Release)/Game.dSYM" ]]' 'Release has no dSYM'
 fi
 check 'grep -q -- "-flto" "$project/compile_commands.json"' 'LTO flag missing from Release commands'
-pass 'targets, shared/static libraries, platform directories, PCH, Unity, .S, C++20 modules, LTO, rpath'
+pass "targets, shared/static libraries, platform directories, PCH, Unity, .S,$([[ $modules == 1 ]] && echo ' C++20 modules,') LTO, rpath"
 
 # No-op build relinks nothing; a header edit recompiles its users only.
 stamp="$(mtime "$out/Game")"; sleep 1
@@ -170,14 +181,16 @@ sed -i.bak 's/CORE_API int PlatformTag();/CORE_API int PlatformTag(); \/\/ edite
 beast build "$project" --target Game --config Debug
 check 'grep -q "Compiling Main.cpp" "$work/last.log" && ! grep -q "Compiling A.cpp\|Compiling Module_" "$work/last.log"' 'wrong rebuild set after header edit'
 # Modules: an implementation unit edit recompiles only itself; an interface edit, its importers.
+if [[ $modules == 1 ]]; then
 sed -i.bak 's/r.w \* r.h;/r.w * r.h; \/* edited *\//' "$project/Source/Geometry/Area.cpp"
 beast build "$project" --target Game --config Debug
-check 'grep -q "Compiling Area.cpp" "$work/last.log" && ! grep -q "Compiling Main.cpp\|Compiling Geometry.cppm" "$work/last.log"' 'implementation unit edit rebuilt too much'
+check 'grep -q "Compiling Area.cpp" "$work/last.log" && ! grep -q "Compiling Answer.cpp\|Compiling Geometry.cppm" "$work/last.log"' 'implementation unit edit rebuilt too much'
 sed -i.bak 's/export int Area(int w, int h);/export int Area(int w, int h); \/\/ edited/' "$project/Source/Geometry/Geometry.cppm"
 beast build "$project" --target Game --config Debug
-check 'grep -q "Compiling Geometry.cppm" "$work/last.log" && grep -q "Compiling Main.cpp" "$work/last.log"' 'interface edit did not rebuild importers'
+check 'grep -q "Compiling Geometry.cppm" "$work/last.log" && grep -q "Compiling Answer.cpp" "$work/last.log" && ! grep -q "Compiling Main.cpp" "$work/last.log"' 'interface edit did not rebuild exactly its importers'
 check '[[ "$("$out/Game")" == "42 42 42 42" ]]' 'Game output after module edits'
-pass 'incremental build (headers, C++20 modules)'
+fi
+pass 'incremental build (headers'"$([[ $modules == 1 ]] && echo ', C++20 modules')"')'
 
 # run, test
 "${tool[@]}" run "$project" --target Game --no-build >"$work/run.log" 2>&1 || { cat "$work/run.log"; echo 'FAIL: run'; exit 1; }
@@ -257,8 +270,23 @@ if [[ $os == Linux ]] && command -v g++ >/dev/null; then
     done
     check 'grep -q "bin/g++" "$project/compile_commands.json"' 'GCC was not used'
     config 'c["linux"]["compiler"] = ""'
-    pass 'GCC (PCH, C++20 modules, LTO)'
+    pass "GCC (PCH,$([[ $modules == 1 ]] && echo ' C++20 modules,') LTO)"
 else skipped+=('GCC'); fi
+
+# macOS: C++20 modules with Homebrew LLVM (Apple clang has none).
+if [[ $os == Mac ]]; then
+    llvm="$(brew --prefix llvm 2>/dev/null || true)/bin/clang++"
+    if [[ -x "$llvm" ]]; then
+        config "c.setdefault('mac', {})['cxx'] = '$llvm'"
+        export DEMO_MODULES=1
+        beast build "$project" --target Game --config Debug
+        check '[[ "$("$(bin Debug)/Game")" == "42 42 42 42" ]]' 'Game with modules (Homebrew LLVM)'
+        check 'grep -q "\.pcm" "$work/last.log" || ls "$project"/Intermediate/Build/$platform/Debug/Tools/Modules/*.pcm >/dev/null' 'no BMIs were written'
+        export DEMO_MODULES=0
+        config "c['mac']['cxx'] = ''"
+        pass 'C++20 modules on macOS (Homebrew LLVM)'
+    else skipped+=('C++20 modules on macOS (no Homebrew LLVM)'); fi
+fi
 
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
