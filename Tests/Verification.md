@@ -318,3 +318,19 @@ including the new MSVC module and CMake consumer checks), a real Android NDK bui
 - `ModelTests`: 11/11 PASS (new: Linux/macOS source rules, module scanning and graph errors,
   CMake/pkg-config text for Windows DLLs and Android). `BuildGraphTests` and all earlier harnesses PASS;
   the fake-toolchain Android build/test/second application still PASS.
+
+## GitHub Actions — 2026-10-24
+
+First runs on real machines (https://github.com/Dilyob2004/Beast.BuildTool.v2/actions). All three
+jobs green from commit 582af0a.
+
+- Linux (ubuntu-24.04): build, BuildGraphTests, ModelTests, `Tests/Unix.sh --android` (Clang, GCC,
+  APK with arm64-v8a + x86_64 from the real NDK) — passed on the first run.
+- Windows (windows-latest): Smoke, Targets, CompilationModes, Features (MSVC DLL/LTO/run/test/
+  install/package, CMake consumer, ASan, MASM, C++20 modules, clang-cl). Fixed: MSVC rejects an
+  internal partition in an .ixx (C7622) — internal partitions/implementation units are now .cpp
+  everywhere; clang-cl ASan in Debug uses /MD and drops _DEBUG (no debug-CRT ASan runtime).
+- macOS (macos-latest, arm64): Apple clang build, rpath, .dSYM, run/test/install/package, CMake,
+  sanitizers, .app bundle. Fixed: Apple clang has no named modules (clear error, `mac.cxx` for
+  Homebrew LLVM); build state files moved out of .app bundles (codesign failed on them).
+- Test scripts now report failures as GitHub annotations with the end of the log.
