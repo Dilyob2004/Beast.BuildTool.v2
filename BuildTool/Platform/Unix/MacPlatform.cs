@@ -115,8 +115,14 @@ public sealed class MacPlatform : UnixPlatform
         string dsym = DsymPath(output);
         string dwarf = Path.Combine(dsym, "Contents", "Resources", "DWARF", Path.GetFileName(output));
         executor.AddCommand(new CommandContext(_dsymutil, $"\"{output}\" -o \"{dsym}\"", CommandType.Link, [dwarf], [output], false,
-            $"Writing {Path.GetFileName(dsym)}...", recreateOutputs: true));
+            $"Writing {Path.GetFileName(dsym)}...", recreateOutputs: true, statePath: dsym + ".state.json"));
     }
+
+    /// <summary>
+    /// Build state stays outside bundles: a file in X.app/Contents/MacOS would be an unsigned
+    /// subcomponent and make codesign fail.
+    /// </summary>
+    protected override string? LinkStatePath(string output) => IsBundleExecutable(output) ? BundleOf(output) + ".state.json" : null;
 
     public static string DsymPath(string product) => (IsBundleExecutable(product) ? BundleOf(product) : product) + ".dSYM";
 

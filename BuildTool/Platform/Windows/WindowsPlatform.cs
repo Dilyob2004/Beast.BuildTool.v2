@@ -453,7 +453,8 @@ namespace Beast.BuildTool
                 if (Environment.StaticRuntime)
                     CommonArgs.Add(Environment.UseDebugCRT ? "/MTd" : "/MT");
                 else
-                    CommonArgs.Add(Environment.UseDebugCRT ? "/MDd" : "/MD");
+                    // clang-cl AddressSanitizer has no debug-CRT runtime: Debug ASan builds use /MD.
+                    CommonArgs.Add(Environment.UseDebugCRT && !(UsesClangCl && Environment.Sanitizers.HasFlag(Sanitizer.Address)) ? "/MDd" : "/MD");
 
                 // Specify floating-point behavior
                 CommonArgs.Add(Environment.FloatingPoint switch

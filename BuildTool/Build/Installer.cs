@@ -272,6 +272,7 @@ public static class Installer
         foreach (var entry in source.EnumerateFileSystemInfos())
         {
             string target = Path.Combine(destination, entry.Name);
+            if (entry.Name.EndsWith(".state.json", StringComparison.Ordinal)) continue; // Beast build state, not a product
             if (entry.LinkTarget != null) File.CreateSymbolicLink(target, entry.LinkTarget);
             else if (entry is DirectoryInfo directory) CopyDirectory(directory, target);
             else File.Copy(entry.FullName, target, true);

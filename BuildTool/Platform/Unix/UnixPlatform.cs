@@ -188,8 +188,11 @@ public abstract class UnixPlatform : Platform
             args.Add(library.StartsWith('-') ? library : "-l" + library);
         executor.AddCommand(new CommandContext(Compiler, string.Join(" ", args), CommandType.Link, [output],
             environment.InputFiles.Concat(files.Where(p => File.Exists(p) || Path.IsPathFullyQualified(p))).ToList(), false, $"Linking {Path.GetFileName(output)}...",
-            contentDirectories: environment.LibraryPaths.Concat(LibraryContentDirectories)));
+            contentDirectories: environment.LibraryPaths.Concat(LibraryContentDirectories), statePath: LinkStatePath(output)));
     }
+
+    /// <summary>Where the link action keeps its state; null: beside the output.</summary>
+    protected virtual string? LinkStatePath(string output) => null;
 
     protected virtual string SharedLibraryFlag => "-shared";
     protected static bool IsLibraryFile(string library) => library.IndexOfAny(['/', '\\']) >= 0;
