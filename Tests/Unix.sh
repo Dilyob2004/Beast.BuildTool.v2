@@ -18,8 +18,17 @@ case "$(uname -s)" in Darwin) os=Mac; platform=Mac; so=dylib;; *) os=Linux; plat
 work="$here/Generated/Unix-$(date +%s)-$$"
 project="$work/Demo"
 passed=0; skipped=()
-beast() { "${tool[@]}" "$@" >"$work/last.log" 2>&1 || { cat "$work/last.log"; echo "FAIL: beast $*"; exit 1; }; }
-check() { if ! eval "$1"; then echo "FAIL: $2"; exit 1; fi; }
+# In GitHub Actions a failure is also reported as an annotation (with the end of the log), so it
+# can be read without opening the job log.
+annotate() {
+    [[ -n "${GITHUB_ACTIONS:-}" ]] || return 0
+    local text="$1"
+    [[ -n "${2:-}" && -f "$2" ]] && text+=$'\n'"$(grep -v ' Verbose ' "$2" | tail -n 40)"
+    text="${text//'%'/'%25'}"; text="${text//$'\r'/}"; text="${text//$'\n'/'%0A'}"
+    echo "::error title=Unix.sh::$text"
+}
+beast() { "${tool[@]}" "$@" >"$work/last.log" 2>&1 || { cat "$work/last.log"; echo "FAIL: beast $*"; annotate "beast $* failed" "$work/last.log"; exit 1; }; }
+check() { if ! eval "$1"; then echo "FAIL: $2"; annotate "$2" "$work/last.log"; exit 1; fi; }
 pass() { echo "PASS: $1"; passed=$((passed + 1)); }
 put() { mkdir -p "$(dirname "$project/$1")"; printf '%s\n' "$2" >"$project/$1"; }
 module() { put "Source/$1/$1.Build.cs" "using Beast.BuildTool;

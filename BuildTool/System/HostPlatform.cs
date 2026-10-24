@@ -26,7 +26,7 @@ public static class HostPlatform
     /// <summary>Makes a script runnable on Unix hosts (templates copied from Windows lose the mode bit).</summary>
     public static void EnsureExecutable(string path)
     {
-        if (IsWindows || !File.Exists(path)) return;
+        if (OperatingSystem.IsWindows() || !File.Exists(path)) return;
         var mode = File.GetUnixFileMode(path);
         const UnixFileMode execute = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
         if ((mode & UnixFileMode.UserExecute) == 0) File.SetUnixFileMode(path, mode | execute);

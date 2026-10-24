@@ -13,8 +13,17 @@ $testRoot = Join-Path $PSScriptRoot ('Generated/Features ' + [guid]::NewGuid().T
 $project = Join-Path $testRoot 'Features'
 $script:skipped = @()
 function Beast([string[]]$Arguments) {
-    & $tool @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "Beast failed: $Arguments" }
+    $log = @(& $tool @Arguments 2>&1 | ForEach-Object { "$_" })
+    $log | Write-Host
+    if ($LASTEXITCODE -ne 0) {
+        $tail = ($log | Where-Object { $_ -notmatch ' Verbose ' } | Select-Object -Last 40) -join "`n"
+        throw "Beast failed: $Arguments`n$tail"
+    }
+}
+# In GitHub Actions the failure is also reported as an annotation (readable without the job log).
+trap {
+    if ($env:GITHUB_ACTIONS) { Write-Host ("::error title=Features.ps1::" + ("$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)" -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A')) }
+    break
 }
 function Check([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
 function Skip([string]$Message) { Write-Host "SKIP: $Message"; $script:skipped += $Message }
