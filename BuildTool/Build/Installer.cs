@@ -92,11 +92,21 @@ public static class Installer
             await new GenericProjectBuilder().BuildAsync(project, projectName, platforms, configuration, name);
             bool apkInstalled = false;
             InstallManifest? exported = null;
-            foreach (var platform in platforms)
+            // macOS universal: the arm64 manifest describes the files; they are taken from MacUniversal.
+            bool universal = MacPlatform.IsUniversal(platforms);
+            foreach (var platform in universal ? platforms.Take(1) : platforms)
             {
                 string manifestPath = InstallManifest.PathFor(Path.Combine(project, "Intermediate", "Build", platform.PlatformName, configuration.ToString(), name));
                 var manifest = JsonSerializer.Deserialize<InstallManifest>(File.ReadAllText(manifestPath))
                     ?? throw new InvalidDataException($"Invalid install manifest: {manifestPath}");
+                if (universal)
+                    manifest = manifest with
+                    {
+                        Products = manifest.Products.Select(MacPlatform.ToUniversal).ToList(),
+                        Symbols = manifest.Symbols.Select(MacPlatform.ToUniversal).ToList(),
+                        Runtime = manifest.Runtime.Select(MacPlatform.ToUniversal).ToList(),
+                        Binaries = MacPlatform.ToUniversal(manifest.Binaries + Path.DirectorySeparatorChar).TrimEnd(Path.DirectorySeparatorChar),
+                    };
                 bool android = platform is AndroidPlatform;
                 string abi = (platform as AndroidPlatform)?.Abi ?? "";
                 if (android && manifest.Type == TargetType.Application)
@@ -162,13 +172,18 @@ public static class Installer
 
     /// <summary>install into a fresh staging directory, then a zip: Binaries/Packages/Project-Platform-Configuration.zip.</summary>
     public static async Task<string> PackageAsync(string project, IReadOnlyList<Platform> platforms, TargetConfiguration configuration,
-        IReadOnlyCollection<string> targets, string? output, bool symbols)
+        IReadOnlyCollection<string> targets, string? output, bool symbols, bool diskImage = false, bool notarize = false)
     {
         string projectName = new DirectoryInfo(project).Name;
-        string label = platforms[0] is AndroidPlatform ? "Android" : platforms[0].PlatformName;
+        string label = platforms[0] is AndroidPlatform ? "Android" : MacPlatform.IsUniversal(platforms) ? MacPlatform.UniversalName : platforms[0].PlatformName;
+        if ((diskImage || notarize) && platforms[0] is not MacPlatform)
+            throw new InvalidOperationException("--dmg and --notarize are for --platform Mac.");
         string staging = Path.Combine(project, "Intermediate", "Package", label + "-" + configuration);
         if (Directory.Exists(staging)) Directory.Delete(staging, true);
         await InstallAsync(project, platforms, configuration, targets, staging, symbols);
+        if (diskImage || notarize)
+            return await MacPlatform.CreateDiskImageAsync(staging,
+                Path.GetFullPath(output ?? Path.Combine(project, "Binaries", "Packages", $"{projectName}-{label}-{configuration}.dmg")), projectName, notarize);
         output = Path.GetFullPath(output ?? Path.Combine(project, "Binaries", "Packages", $"{projectName}-{label}-{configuration}.zip"));
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         string temporary = output + "." + Guid.NewGuid().ToString("N") + ".tmp";

@@ -44,6 +44,7 @@ public sealed class GenericProjectBuilder
             if (await BuildTargetAsync(model, target, projectPath, projectName, platform, configuration) is { } output) androidOutputs.Add(output);
         }
         if (androidOutputs.Count > 0) await AndroidPackager.PackageAsync(projectPath, androidOutputs[0].Target, configuration, androidOutputs);
+        if (MacPlatform.IsUniversal(platforms)) await MacPlatform.MergeUniversalAsync(projectPath, configuration);
     }
 
     internal static string TargetLockName(string platform, TargetConfiguration configuration, string target) => $"{platform}-{configuration}-{target}";

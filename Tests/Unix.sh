@@ -254,6 +254,28 @@ else
     pass 'windowed application (plain program on Linux)'
 fi
 
+# macOS universal binaries (lipo) and a disk image with the app (dylibs embedded in Frameworks).
+if [[ $os == Mac ]]; then
+    beast build "$project" --target Viewer --arch universal --config Release
+    uni="$project/Binaries/MacUniversal/Release"
+    check 'lipo -archs "$uni/Viewer.app/Contents/MacOS/Viewer" | grep -q x86_64 && lipo -archs "$uni/Viewer.app/Contents/MacOS/Viewer" | grep -q arm64' 'Viewer is not universal'
+    check 'lipo -archs "$uni/libEngine.dylib" | grep -q x86_64' 'libEngine.dylib is not universal'
+    check '[[ "$("$uni/Viewer.app/Contents/MacOS/Viewer")" == "viewer 42" ]]' 'universal Viewer does not run'
+    check '[[ "$(arch -x86_64 "$uni/Viewer.app/Contents/MacOS/Viewer")" == "viewer 42" ]]' 'x86_64 slice does not run (Rosetta)'
+    beast package "$project" --target Viewer,Engine --arch universal --dmg
+    dmg="$project/Binaries/Packages/Demo-MacUniversal-Release.dmg"
+    check '[[ -f "$dmg" ]] && hdiutil verify "$dmg" >/dev/null 2>&1' 'disk image missing or invalid'
+    mount="$work/dmg"; mkdir -p "$mount"
+    hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
+    ok=1
+    [[ -f "$mount/Viewer.app/Contents/Frameworks/libEngine.dylib" && -L "$mount/Applications" ]] || ok=0
+    [[ "$("$mount/Viewer.app/Contents/MacOS/Viewer" 2>&1)" == "viewer 42" ]] || ok=0
+    codesign --verify --deep "$mount/Viewer.app" || ok=0
+    hdiutil detach "$mount" >/dev/null || true
+    check '[[ $ok == 1 ]]' 'disk image content (app with embedded dylib, Applications link, signature)'
+    pass 'macOS universal binaries and disk image'
+fi
+
 # Sanitizers (Debug), when the compiler's sanitizer runtime is installed (Linux: libclang-rt-dev).
 cxx=clang++; [[ $os == Mac ]] && cxx="xcrun clang++"
 if command -v ${cxx%% *} >/dev/null && printf 'int main(){return 0;}' | $cxx -fsanitize=address,undefined -x c++ - -o "$work/sanitizer-probe" 2>/dev/null; then

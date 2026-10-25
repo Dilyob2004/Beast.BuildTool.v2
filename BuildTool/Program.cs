@@ -173,7 +173,8 @@ internal static class Program
         // Distribution defaults to Release; --config overrides.
         var (project, platforms, configuration, targets) = Prepare(args, "Release");
         if (package)
-            await Installer.PackageAsync(project, platforms, configuration, targets, GetOptionalArgument(args, "output"), args.HasFlag("symbols"));
+            await Installer.PackageAsync(project, platforms, configuration, targets, GetOptionalArgument(args, "output"), args.HasFlag("symbols"),
+                args.HasFlag("dmg"), args.HasFlag("notarize"));
         else
         {
             string prefix = GetOptionalArgument(args, "prefix") ?? throw new ArgumentException("install requires --prefix <directory>.");
@@ -260,7 +261,7 @@ Beast BuildTool
   beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait]
   beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
-  beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols]
+  beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols] [--dmg [--notarize]]
   beast clean [project-path] [--target <name>]   (without --target: the whole Intermediate/Build)
 """);
         return 0;

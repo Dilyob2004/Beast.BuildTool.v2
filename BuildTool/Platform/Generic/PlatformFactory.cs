@@ -32,9 +32,14 @@ public static class PlatformFactory
             case "iossimulator" or "ios-simulator" or "simulator":
                 return [new IosPlatform(simulator: true, ParseUnixArch(arch, "iOS Simulator"))];
             case "mac" or "macos" or "osx" or "darwin":
-                return [new MacPlatform(ParseUnixArch(arch, "macOS"))];
+                // universal: both architectures, merged with lipo into Binaries/MacUniversal.
+                return arch is "universal" or "arm64,x64" or "x64,arm64"
+                    ? [new MacPlatform(PlatformArch.ARM64), new MacPlatform(PlatformArch.X64)]
+                    : [new MacPlatform(ParseUnixArch(arch, "macOS"))];
+            case "macuniversal":
+                return [new MacPlatform(PlatformArch.ARM64), new MacPlatform(PlatformArch.X64)];
             default:
-                throw new ArgumentException($"Unsupported platform '{platform}'. Use Windows (--arch x64|arm64), Linux (--arch x64|arm64), Mac (--arch arm64|x64), IOS, IOSSimulator (--arch arm64|x64) or Android (--arch arm64-v8a|x86_64).");
+                throw new ArgumentException($"Unsupported platform '{platform}'. Use Windows (--arch x64|arm64), Linux (--arch x64|arm64), Mac (--arch arm64|x64|universal), IOS, IOSSimulator (--arch arm64|x64) or Android (--arch arm64-v8a|x86_64).");
         }
     }
 

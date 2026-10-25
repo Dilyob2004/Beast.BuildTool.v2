@@ -203,6 +203,147 @@ public sealed class MacPlatform : UnixPlatform
             CommandType.Link, [outputPath], objects.Append(list).ToList(), false, $"Archiving {Path.GetFileName(outputPath)}...", recreateOutputs: true));
     }
 
+    // ------------------------------------------------------------------ universal binaries
+
+    /// <summary>--arch universal: an arm64 and an x86_64 build of the same targets.</summary>
+    public static bool IsUniversal(IReadOnlyList<Platform> platforms) =>
+        platforms.Count == 2 && platforms.All(p => p is MacPlatform) && platforms.Select(p => p.Architecture).Distinct().Count() == 2;
+
+    public const string UniversalName = "MacUniversal";
+
+    /// <summary>Binaries/Mac/... -> Binaries/MacUniversal/... (other paths unchanged).</summary>
+    public static string ToUniversal(string path)
+    {
+        string separator = Path.DirectorySeparatorChar.ToString();
+        string marker = separator + "Binaries" + separator + "Mac" + separator;
+        int index = path.IndexOf(marker, StringComparison.Ordinal);
+        return index < 0 ? path : path[..index] + separator + "Binaries" + separator + UniversalName + separator + path[(index + marker.Length)..];
+    }
+
+    /// <summary>
+    /// Merges Binaries/Mac/&lt;config&gt; (arm64) and Binaries/MacX64/&lt;config&gt; into
+    /// Binaries/MacUniversal/&lt;config&gt;: Mach-O files present in both (programs, dylibs, archives,
+    /// bundle programs, dSYM DWARF) are combined with lipo; other files are copied from the arm64 tree.
+    /// Only files newer than the merged copy are processed.
+    /// </summary>
+    public static async Task MergeUniversalAsync(string project, TargetConfiguration configuration)
+    {
+        string arm = Path.Combine(project, "Binaries", "Mac", configuration.ToString());
+        string intel = Path.Combine(project, "Binaries", "MacX64", configuration.ToString());
+        string universal = Path.Combine(project, "Binaries", UniversalName, configuration.ToString());
+        string lipo = XcrunSdk("macosx", "--find", "lipo");
+        int merged = 0;
+        foreach (string file in Directory.EnumerateFiles(arm, "*", SearchOption.AllDirectories))
+        {
+            if (file.EndsWith(".state.json", StringComparison.Ordinal)) continue;
+            string relative = Path.GetRelativePath(arm, file);
+            string destination = Path.Combine(universal, relative);
+            string counterpart = Path.Combine(intel, relative);
+            bool macho = File.Exists(counterpart) && IsMachO(file) && IsMachO(counterpart);
+            DateTime newest = macho ? new[] { File.GetLastWriteTimeUtc(file), File.GetLastWriteTimeUtc(counterpart) }.Max() : File.GetLastWriteTimeUtc(file);
+            if (File.Exists(destination) && File.GetLastWriteTimeUtc(destination) >= newest) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            if (macho)
+            {
+                var info = new ProcessStartInfo(lipo) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
+                foreach (string argument in new[] { "-create", file, counterpart, "-output", destination }) info.ArgumentList.Add(argument);
+                using var process = Process.Start(info)!;
+                string error = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+                if (process.ExitCode != 0) throw new InvalidOperationException($"lipo failed for {relative}: {error}");
+                ++merged;
+            }
+            else File.Copy(file, destination, true);
+        }
+        if (merged > 0) Log.TraceInfo($"Universal binaries: {merged} merged into {universal}");
+    }
+
+    /// <summary>Thin or fat Mach-O file (programs, dylibs, objects) or a static archive.</summary>
+    private static bool IsMachO(string path)
+    {
+        Span<byte> header = stackalloc byte[8];
+        using var stream = File.OpenRead(path);
+        if (stream.Read(header) < 8) return false;
+        uint magic = BitConverter.ToUInt32(header[..4]);
+        return magic is 0xfeedfacf or 0xcffaedfe or 0xfeedface or 0xcefaedfe or 0xcafebabe or 0xbebafeca
+            || System.Text.Encoding.ASCII.GetString(header) == "!<arch>\n";
+    }
+
+    // ------------------------------------------------------------------ disk images
+
+    /// <summary>
+    /// package --dmg: a compressed disk image of the installed files. Applications are placed at the top
+    /// with an Applications link, and the dylibs from lib/ are embedded in their Contents/Frameworks
+    /// (programs find them through @executable_path/../Frameworks) before the bundle is signed again.
+    /// With --notarize the image is signed, submitted with notarytool (mac.notaryProfile) and stapled.
+    /// </summary>
+    public static async Task<string> CreateDiskImageAsync(string staging, string output, string volume, bool notarize)
+    {
+        var settings = BuildConfigManager.Config.Mac;
+        if (notarize && (string.IsNullOrWhiteSpace(settings.SigningIdentity) || string.IsNullOrWhiteSpace(settings.NotaryProfile)))
+            throw new InvalidOperationException("--notarize needs mac.signingIdentity (\"Developer ID Application: ...\") and mac.notaryProfile " +
+                "(a keychain profile from 'xcrun notarytool store-credentials').");
+        string root = staging + ".dmg-root";
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        Directory.CreateDirectory(root);
+        string bin = Path.Combine(staging, "bin");
+        var apps = Directory.Exists(bin) ? Directory.GetDirectories(bin, "*.app") : [];
+        string lib = Path.Combine(staging, "lib");
+        foreach (string app in apps)
+        {
+            string target = Path.Combine(root, Path.GetFileName(app));
+            await RunToolAsync("/bin/cp", ["-R", app, target]);
+            if (Directory.Exists(lib))
+                foreach (string dylib in Directory.GetFiles(lib, "*.dylib"))
+                {
+                    string frameworks = Path.Combine(target, "Contents", "Frameworks");
+                    Directory.CreateDirectory(frameworks);
+                    File.Copy(dylib, Path.Combine(frameworks, Path.GetFileName(dylib)), true);
+                    if (!string.IsNullOrWhiteSpace(settings.SigningIdentity)) await SignAsync(Path.Combine(frameworks, Path.GetFileName(dylib)));
+                }
+            await SignAsync(target);
+        }
+        if (apps.Length > 0) File.CreateSymbolicLink(Path.Combine(root, "Applications"), "/Applications");
+        // Everything else (command line programs, libraries, headers) keeps the install layout.
+        foreach (string entry in Directory.EnumerateFileSystemEntries(staging))
+        {
+            string name = Path.GetFileName(entry);
+            if (apps.Length > 0 && name == "bin" && Directory.GetFileSystemEntries(bin).All(e => e.EndsWith(".app", StringComparison.Ordinal))) continue;
+            await RunToolAsync("/bin/cp", ["-R", entry, Path.Combine(root, name)]);
+        }
+        if (apps.Length > 0 && Directory.Exists(Path.Combine(root, "bin")))
+            foreach (string app in Directory.GetDirectories(Path.Combine(root, "bin"), "*.app")) Directory.Delete(app, true);
+        Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        if (File.Exists(output)) File.Delete(output);
+        await RunToolAsync("/usr/bin/hdiutil", ["create", "-volname", volume, "-srcfolder", root, "-ov", "-format", "UDZO", output]);
+        Directory.Delete(root, true);
+        if (!string.IsNullOrWhiteSpace(settings.SigningIdentity))
+            await RunToolAsync("/usr/bin/codesign", ["--force", "--sign", settings.SigningIdentity, "--timestamp", output]);
+        if (notarize)
+        {
+            Log.TraceInfo("Submitting the disk image for notarization (this can take several minutes)...");
+            await RunToolAsync("/usr/bin/xcrun", ["notarytool", "submit", output, "--keychain-profile", settings.NotaryProfile, "--wait"],
+                failure: output => output.Contains("status: Accepted", StringComparison.Ordinal) ? null : "notarization was not accepted");
+            await RunToolAsync("/usr/bin/xcrun", ["stapler", "staple", output]);
+            Log.TraceInfo("Notarized and stapled.");
+        }
+        Log.TraceInfo($"Disk image: {output}");
+        return output;
+    }
+
+    private static async Task RunToolAsync(string program, IEnumerable<string> arguments, Func<string, string?>? failure = null)
+    {
+        var info = new ProcessStartInfo(program) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
+        foreach (string argument in arguments) info.ArgumentList.Add(argument);
+        using var process = Process.Start(info) ?? throw new InvalidOperationException($"{program} could not be started.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        string output = (await stdout) + (await stderr);
+        string? problem = process.ExitCode != 0 ? $"exit code {process.ExitCode}" : failure?.Invoke(output);
+        if (problem != null) throw new InvalidOperationException($"{Path.GetFileName(program)} {string.Join(' ', arguments)}: {problem}{Environment.NewLine}{output}");
+    }
+
     /// <summary>Frameworks of the SDK: ModuleRules.Frameworks.Add("Cocoa") links -framework Cocoa.</summary>
     public override void SetupLinkEnvironment(LinkEnvironment environment) { }
 }

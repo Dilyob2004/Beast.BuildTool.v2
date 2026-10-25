@@ -92,6 +92,8 @@ public sealed class MacBuildConfig
     [JsonPropertyName("cxx")] public string Cxx { get; set; } = "";
     /// <summary>Bundle identifier of .app bundles; empty: com.beast.&lt;target&gt;.</summary>
     [JsonPropertyName("bundleIdentifier")] public string BundleIdentifier { get; set; } = "";
+    /// <summary>Keychain profile for notarization (xcrun notarytool store-credentials &lt;profile&gt;).</summary>
+    [JsonPropertyName("notaryProfile")] public string NotaryProfile { get; set; } = "";
     /// <summary>Code signing identity for codesign; empty: ad-hoc ("-") signature.</summary>
     [JsonPropertyName("signingIdentity")] public string SigningIdentity { get; set; } = "";
 }
