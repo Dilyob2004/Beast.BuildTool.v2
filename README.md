@@ -83,9 +83,19 @@ BuildTool/bin/Beast.BuildTool build Projects/HelloApp            # Binaries/Linu
 BuildTool/bin/Beast.BuildTool run Projects/HelloApp
 ```
 
-Шаблон для Windows, Linux и macOS печатает приветствие через обычный `main()`. Android-шаблон
-реализует `ANativeActivity_onCreate` напрямую, выводит приветствие в logcat и
-заливает окно тёмным цветом. Это минимальная заготовка, не UI-библиотека.
+Шаблон `new` даёт для каждой платформы свою точку входа в модуле `Launch`:
+
+| Платформа | Файл | Что делает |
+| --- | --- | --- |
+| Windows, Linux | `Launch.cpp` | консольная `main()` печатает приветствие |
+| Android | `Launch.cpp` | `ANativeActivity_onCreate`: приветствие в logcat, окно заливается тёмным цветом |
+| macOS | `Mac/LaunchMac.mm` | AppKit: `<Project>.app` с окном и надписью (`ConsoleApplication = false` только на Mac) |
+| iOS | `IOS/LaunchIOS.mm` | UIKit: экран с надписью (`UIApplicationMain`, делегат приложения) |
+
+Файлы в `Mac/` и `IOS/` компилируются только для своей платформы, `Launch.Build.cs` подключает
+`Cocoa` или `UIKit`. Оконные приложения пишут приветствие и в stdout; с переменной окружения
+`BEAST_QUIT_AFTER_LAUNCH=1` они завершаются сразу после запуска (так их проверяет CI; в симуляторе —
+`SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1`). Это минимальные заготовки, не UI-библиотека.
 
 Генератор создаёт конфиг путей Java/Android SDK/NDK:
 `Projects/HelloApp/Config/BuildConfig.json`. При необходимости настройте
@@ -407,8 +417,8 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
 - `test --platform IOSSimulator`: тестовые цели — обычные исполняемые файлы, выполняются в симуляторе
   через `simctl spawn`, код выхода передаётся обратно.
 - `install`/`package` копируют `<Target>.app`, а для устройства пишут ещё и `<Target>.ipa` (`Payload/`).
-- Шаблон `new` — консольная `main()`: приложение печатает приветствие и завершается. Интерфейс
-  (UIKit/SwiftUI) пишется в `.mm`-файлах модуля. Модули C++20 — как на macOS: Apple clang их не умеет,
+- Шаблон `new` для iOS — UIKit-приложение `IOS/LaunchIOS.mm` (экран с надписью); свой интерфейс
+  пишется в `.mm`-файлах модуля. Модули C++20 — как на macOS: Apple clang их не умеет,
   `ios.cxx` задаёт другой Clang.
 
 ### Linux

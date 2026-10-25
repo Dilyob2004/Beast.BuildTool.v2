@@ -28,6 +28,10 @@ public static class ProjectGenerator
 
             File.WriteAllText(Path.Combine(projectDir, "Source", "Launch", "Launch.Build.cs"), HeaderGenerator.GenerateLaunchBuildCs(projectName), Encoding.UTF8);
             File.WriteAllText(Path.Combine(projectDir, "Source", "Launch", "Launch.cpp"), HeaderGenerator.GenerateLaunchSource(projectName), Encoding.UTF8);
+            Directory.CreateDirectory(Path.Combine(projectDir, "Source", "Launch", "Mac"));
+            Directory.CreateDirectory(Path.Combine(projectDir, "Source", "Launch", "IOS"));
+            File.WriteAllText(Path.Combine(projectDir, "Source", "Launch", "Mac", "LaunchMac.mm"), HeaderGenerator.GenerateLaunchSource(projectName, "LaunchMac.mm"), Encoding.UTF8);
+            File.WriteAllText(Path.Combine(projectDir, "Source", "Launch", "IOS", "LaunchIOS.mm"), HeaderGenerator.GenerateLaunchSource(projectName, "LaunchIOS.mm"), Encoding.UTF8);
             File.WriteAllText(Path.Combine(projectDir, "Source", projectName + ".Target.cs"), HeaderGenerator.GenerateTargetRules(projectName), Encoding.UTF8);
             BuildConfigManager.CreateDefault(projectDir);
             AndroidTemplateGenerator.Create(projectDir, projectName);

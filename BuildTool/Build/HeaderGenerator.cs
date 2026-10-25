@@ -13,6 +13,8 @@ public static class HeaderGenerator
             {
                 Type = TargetType.Application;
                 Modules.Add("Launch");
+                // macOS: a windowed AppKit application (an .app bundle); a console program elsewhere.
+                ConsoleApplication = info.Platform != PlatformType.Mac;
             }
         }
         """;
@@ -32,12 +34,15 @@ public static class HeaderGenerator
             public Launch(ModulesInfo info)
             {
                 Definitions.Add("{{SanitizeIdentifier(projectName).ToUpperInvariant()}}_BUILD");
+                // Mac/LaunchMac.mm and IOS/LaunchIOS.mm are compiled only for their platform.
+                if (info.Platform == PlatformType.Mac) Frameworks.Add("Cocoa");
+                if (info.Platform == PlatformType.IOS) { Frameworks.Add("UIKit"); Frameworks.Add("Foundation"); }
             }
         }
         """;
 
-    public static string GenerateLaunchSource(string projectName) =>
-        File.ReadAllText(Path.Combine(GlobalEnvironment.TemplatesPath, "Launch.cpp"))
+    public static string GenerateLaunchSource(string projectName, string template = "Launch.cpp") =>
+        File.ReadAllText(Path.Combine(GlobalEnvironment.TemplatesPath, template))
             .Replace("{{PROJECT_NAME}}", SanitizeIdentifier(projectName));
 
     public static string GenerateModuleBuildCs(string moduleName) => $$"""

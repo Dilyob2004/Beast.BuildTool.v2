@@ -27,8 +27,8 @@ void ANativeActivity_onCreate(ANativeActivity* activity, void*, size_t)
     activity->callbacks->onNativeWindowCreated = DrawBackground;
     activity->callbacks->onNativeWindowRedrawNeeded = DrawBackground;
 }
-#else
-// Windows, Linux and macOS: a console program.
+#elif !defined(__APPLE__)
+// Windows and Linux: a console program. macOS and iOS use Mac/LaunchMac.mm and IOS/LaunchIOS.mm.
 #include <iostream>
 
 int main()

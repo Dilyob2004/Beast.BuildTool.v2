@@ -66,7 +66,8 @@ jobs:
           "$beast" new Hello --path "$RUNNER_TEMP"
           if [[ "${{ matrix.rid }}" == osx-x64 ]]; then arch="--arch x64"; else arch=""; fi
           "$beast" build "$RUNNER_TEMP/Hello" --config Release $arch
-          "$beast" run "$RUNNER_TEMP/Hello" --config Release --no-build $arch | tee "$RUNNER_TEMP/run.log"
+          # The macOS template is a windowed app: BEAST_QUIT_AFTER_LAUNCH makes it quit once started.
+          BEAST_QUIT_AFTER_LAUNCH=1 "$beast" run "$RUNNER_TEMP/Hello" --config Release --no-build $arch | tee "$RUNNER_TEMP/run.log"
           grep -q "Hello from Hello" "$RUNNER_TEMP/run.log"
       - name: Archive
         run: |

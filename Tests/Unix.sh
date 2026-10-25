@@ -308,6 +308,24 @@ if [[ $os == Mac ]] && xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>
     pass 'iOS Simulator (app bundle, embedded dylib, signing, test, run)'
 elif [[ $os == Mac ]]; then skipped+=('iOS Simulator (no Xcode iOS SDK or simulator)'); fi
 
+# Project templates from 'beast new': a console program on Linux, an AppKit .app on macOS and a
+# UIKit .app in the iOS Simulator (BEAST_QUIT_AFTER_LAUNCH makes the windowed apps quit once started).
+beast new Template --path "$work"
+template="$work/Template"
+beast build "$template" --config Debug
+BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --no-build >"$work/template.log" 2>&1 || { cat "$work/template.log"; annotate 'template run failed' "$work/template.log"; exit 1; }
+grep -q "Hello from Template!" "$work/template.log" || { cat "$work/template.log"; annotate 'template output' "$work/template.log"; exit 1; }
+if [[ $os == Mac ]]; then
+    check '[[ -x "$template/Binaries/$platform/Debug/Template.app/Contents/MacOS/Template" ]]' 'macOS template is not an .app'
+    if [[ -n "${sim:-}" ]]; then
+        beast build "$template" --platform IOSSimulator --config Debug
+        SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 ||
+            { cat "$work/template-ios.log"; annotate 'iOS template run failed' "$work/template-ios.log"; exit 1; }
+        grep -q "Hello from Template!" "$work/template-ios.log" || { cat "$work/template-ios.log"; annotate 'iOS template output' "$work/template-ios.log"; exit 1; }
+    fi
+fi
+pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
