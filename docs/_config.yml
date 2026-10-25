@@ -1,0 +1,5 @@
+# GitHub Pages (Settings > Pages > Deploy from a branch: main, /docs).
+title: Beast BuildTool
+description: Система сборки C/C++ с правилами на C# — Windows, Linux, macOS, iOS, Android
+theme: jekyll-theme-cayman
+lang: ru
