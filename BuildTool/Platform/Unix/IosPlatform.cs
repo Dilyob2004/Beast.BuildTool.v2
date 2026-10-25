@@ -248,7 +248,25 @@ public static class IosRunner
         // --console-pty for a terminal; with redirected output (CI, logs) --console relays the
         // program's output through pipes, which does not lose it when the program exits quickly.
         string console = Console.IsOutputRedirected ? "--console" : "--console-pty";
-        return await Installer.RunLocalAsync("/usr/bin/xcrun", Path.GetDirectoryName(bundle)!, ["simctl", "launch", console, "--terminate-running-process", udid, identifier]);
+        // simctl does not return the app's exit code; it fails ("has since exited or crashed") when the
+        // app ends before simctl finishes attaching, which is normal for a program that returns at once.
+        var info = new System.Diagnostics.ProcessStartInfo("/usr/bin/xcrun") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string argument in new[] { "simctl", "launch", console, "--terminate-running-process", udid, identifier }) info.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(info)!;
+        var errors = new System.Text.StringBuilder();
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) Console.WriteLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (errors) errors.AppendLine(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        await process.WaitForExitAsync();
+        string error = errors.ToString();
+        if (process.ExitCode != 0 && error.Contains("has since exited", StringComparison.Ordinal))
+        {
+            Log.TraceInfo($"{identifier} finished (simctl reports the early exit as an error).");
+            return 0;
+        }
+        if (error.Length > 0) Console.Error.Write(error);
+        return process.ExitCode;
     }
 
     /// <summary>Runs a test executable inside the simulator (simctl spawn); returns its exit code.</summary>

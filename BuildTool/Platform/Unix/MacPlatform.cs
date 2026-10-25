@@ -251,6 +251,9 @@ public sealed class MacPlatform : UnixPlatform
                 string error = await process.StandardError.ReadToEndAsync();
                 await process.WaitForExitAsync();
                 if (process.ExitCode != 0) throw new InvalidOperationException($"lipo failed for {relative}: {error}");
+                // Apple silicon runs only signed code: sign merged programs and dylibs ad hoc again.
+                if (!relative.EndsWith(".a", StringComparison.Ordinal) && !relative.Contains(".dSYM", StringComparison.Ordinal))
+                    await RunToolAsync("/usr/bin/codesign", ["--force", "--sign", "-", destination]);
                 ++merged;
             }
             else File.Copy(file, destination, true);
@@ -299,7 +302,9 @@ public sealed class MacPlatform : UnixPlatform
                     string frameworks = Path.Combine(target, "Contents", "Frameworks");
                     Directory.CreateDirectory(frameworks);
                     File.Copy(dylib, Path.Combine(frameworks, Path.GetFileName(dylib)), true);
-                    if (!string.IsNullOrWhiteSpace(settings.SigningIdentity)) await SignAsync(Path.Combine(frameworks, Path.GetFileName(dylib)));
+                    // Every embedded dylib is signed (ad hoc without an identity): lipo output carries none,
+                    // and the bundle signature requires signed subcomponents.
+                    await SignAsync(Path.Combine(frameworks, Path.GetFileName(dylib)));
                 }
             await SignAsync(target);
         }
