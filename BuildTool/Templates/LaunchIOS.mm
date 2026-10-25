@@ -29,7 +29,9 @@
     std::printf("Hello from {{PROJECT_NAME}}!\n");
     std::fflush(stdout);
     // Automated runs set this (simctl: SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1) to check that the app starts.
-    if (std::getenv("BEAST_QUIT_AFTER_LAUNCH")) std::exit(0);
+    // The short delay lets simctl's console relay the output before the process ends.
+    if (std::getenv("BEAST_QUIT_AFTER_LAUNCH"))
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ std::exit(0); });
     return YES;
 }
 @end
