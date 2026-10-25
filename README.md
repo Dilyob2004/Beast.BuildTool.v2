@@ -15,6 +15,8 @@
 - **Linux x86_64 и arm64**: Clang или GCC, `.so` с `RUNPATH $ORIGIN`, `.S`, санитайзеры, LTO.
 - **macOS arm64 и x86_64**: Apple clang (Xcode или Command Line Tools), `.dylib` с `@rpath`, `.app`
   бандлы, `.dSYM`, Objective-C/C++ (`.m`, `.mm`), фреймворки, подпись `codesign`.
+- **iOS и iOS Simulator**: `.app` с встроенными `.dylib`, `Info.plist`, подпись (ad-hoc в симуляторе,
+  сертификат и provisioning-профиль для устройства), `.ipa`, `run` и `test` в симуляторе (`simctl`).
 - **Android `arm64-v8a` и `x86_64`** в одном APK: NDK Clang, Gradle из `BuildConfig.json`, подпись
   Debug/Release, несколько приложений в проекте, запуск на эмуляторе или устройстве, тесты через `adb`.
 - **Модули C++20**: `.ixx`/`.cppm`, разделы, единицы реализации, `import` между целями (MSVC, Clang, GCC).
@@ -37,7 +39,7 @@ IME/accessibility-адаптеры, команды `sdk`/`watch` и hot reload �
 навязывает сторонний runtime приложению. Android SDK/NDK и стандартная C++
 библиотека, конечно, остаются платформенными зависимостями.
 
-iOS пока нет. Генераторов Ninja/Make нет и не планируется: Beast сам исполняет граф сборки,
+Генераторов Ninja/Make нет и не планируется: Beast сам исполняет граф сборки,
 а редакторам хватает `compile_commands.json`.
 Исполнитель использует граф действий, зависимости заголовков от MSVC/Clang,
 контентный кеш и ограничения параллелизма по памяти. Есть общий файловый кеш
@@ -146,8 +148,8 @@ public sealed class Core : ModuleRules
 
 Исходники в папках `Windows`, `Win64`, `Win32` компилируются только для Windows,
 `Android` — только для Android, `Linux` — только для Linux, `Mac`, `MacOS`, `OSX` — только для
-macOS. `IOS` зарезервирована и пока не компилируется нигде. Файлы `.m`/`.mm` (Objective-C/C++)
-компилируются только для macOS, `.asm` — только для Windows, `.S`/`.s` — везде, кроме Windows. Учитываются имена папок на любом уровне внутри модуля
+macOS, `IOS` — только для iOS (устройства и симулятора). Файлы `.m`/`.mm` (Objective-C/C++)
+компилируются только для macOS и iOS, `.asm` — только для Windows, `.S`/`.s` — везде, кроме Windows. Учитываются имена папок на любом уровне внутри модуля
 (`Private/Windows/Window.cpp`), имя файла роли не играет. Отключить соглашение для
 модуля: `UsePlatformDirectories = false;`.
 
@@ -351,6 +353,8 @@ Visual Studio-конфигурации — Windows x64/ARM64 и Android (см. �
 ```powershell
 beast build . --platform Linux                          # Binaries/Linux/<config> (arm64: LinuxArm64)
 beast build . --platform Mac                            # Binaries/Mac/<config> (Intel: --arch x64, MacX64)
+beast build . --platform IOSSimulator                   # Binaries/IOSSimulator/<config> (Intel Mac: IOSSimulatorX64)
+beast build . --platform IOS                            # Binaries/IOS/<config>: устройство, нужна подпись
 beast build . --platform Windows --arch arm64          # Binaries/WindowsArm64/<config>
 beast build . --platform Android                        # все ABI из android.abis в один APK
 beast build . --platform Android --arch x86_64          # только x86_64 (эмулятор)
@@ -376,6 +380,36 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   depfile) и `.s` — Clang/GCC, на Android, Linux и macOS. Файлы ассемблера не входят в Unity/PCH и не попадают
   в compile cache; в `.asm` передаются только простые определения `NAME`/`NAME=value`.
 - `run --device <serial>` принимает и физическое устройство; эмулятор нужен только для запуска AVD.
+
+### iOS
+
+```json
+"ios": { "deploymentTarget": "15.0", "bundleIdentifier": "", "signingIdentity": "", "provisioningProfile": "",
+         "simulator": "", "device": "", "cxx": "" }
+```
+
+- Нужен Xcode (в Command Line Tools нет iOS SDK). `--platform IOSSimulator` — симулятор (arm64, на Intel
+  Mac `--arch x64`), `--platform IOS` — устройства (arm64). Компилятор и SDK `iphonesimulator`/`iphoneos`
+  находятся через `xcrun`, цель — `--target=arm64-apple-ios<deploymentTarget>[-simulator]`.
+- Каждая Application-цель — бандл `Binaries/<платформа>/<config>/<Target>.app` (плоская структура iOS:
+  `<Target>.app/<Target>`, `Info.plist` с `bundleIdentifier` или `com.beast.<target>`, версией из
+  `TargetRules.Version`, `MinimumOSVersion`, `UILaunchScreen`). `.dylib` целей-зависимостей и пакетов
+  встраиваются в `<Target>.app/Frameworks` (программа ищет их через `@executable_path/Frameworks`).
+  Программа линкуется в `Intermediate/.../Program`, затем копируется в бандл и подписывается — так
+  подпись не ломает инкрементальность. Фреймворки: `Frameworks.Add("UIKit");`.
+- Подпись: симулятор — ad-hoc; устройство — `signingIdentity` (`security find-identity -v -p codesigning`)
+  и `provisioningProfile` (`.mobileprovision` для этого bundle identifier): профиль кладётся в бандл как
+  `embedded.mobileprovision`, его entitlements передаются `codesign`. Без них сборка для устройства —
+  ошибка с подсказкой.
+- `run --platform IOSSimulator` загружает симулятор (`ios.simulator` — имя или UDID, иначе запущенный
+  или первый iPhone), устанавливает и запускает приложение, показывая его вывод. `run --platform IOS
+  --device <имя>` — установка и запуск на устройстве через `xcrun devicectl` (Xcode 15+).
+- `test --platform IOSSimulator`: тестовые цели — обычные исполняемые файлы, выполняются в симуляторе
+  через `simctl spawn`, код выхода передаётся обратно.
+- `install`/`package` копируют `<Target>.app`, а для устройства пишут ещё и `<Target>.ipa` (`Payload/`).
+- Шаблон `new` — консольная `main()`: приложение печатает приветствие и завершается. Интерфейс
+  (UIKit/SwiftUI) пишется в `.mm`-файлах модуля. Модули C++20 — как на macOS: Apple clang их не умеет,
+  `ios.cxx` задаёт другой Clang.
 
 ### Linux
 
@@ -435,7 +469,8 @@ LinkTimeOptimization = true; // Development/Release: MSVC /GL + /LTCG (lib /LTCG
   `wrap.sh` работает только в debuggable APK (Debug); в других конфигурациях выводится предупреждение.
 - Linux и macOS: `-fsanitize=address`, `undefined`, `thread` (Thread несовместим с Address); рантайм
   компилятора (на Linux — пакет `libclang-rt-dev` для Clang, `libasan`/`libubsan` для GCC).
-- Thread на Windows и Android, Memory везде отклоняются с ошибкой.
+- iOS: Address и Undefined (в симуляторе). Thread на Windows, Android и iOS, Memory везде
+  отклоняются с ошибкой.
 
 ### Android: Gradle из конфигурации
 
@@ -742,7 +777,7 @@ Tests\RunTests.bat all "D:\Android\Sdk"   :: SDK явно (иначе ANDROID_HO
 bash Build.sh                     # собрать инструмент в BuildTool/bin
 bash Tests/Unix.sh                # настоящие сборки: цели, .so/.dylib, PCH, Unity, .S, модули C++20, LTO,
                                   # инкрементальность, run/test, install/package, CMake/pkg-config,
-                                  # .app (macOS), санитайзеры, GCC (Linux)
+                                  # .app (macOS), iOS Simulator (macOS с Xcode), санитайзеры, GCC (Linux)
 bash Tests/Unix.sh --android      # + APK этого проекта (ANDROID_HOME, NDK, JAVA_HOME)
 dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
 ```

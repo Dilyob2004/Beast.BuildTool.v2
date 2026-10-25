@@ -34,6 +34,10 @@ public sealed record InstallManifest(string Target, TargetType Type, string Plat
                 products.Add(Output(".exe"));
                 symbols.Add(Output(".pdb"));
                 break;
+            case TargetType.Application when platform.Type == PlatformType.IOS && !target.Rules.IsTest:
+                products.Add(IosPlatform.BundlePath(outputPath, baseName)); // installed as the .app (+ .ipa for devices)
+                symbols.Add(Path.Combine(buildPath, "Program", baseName + ".dSYM"));
+                break;
             case TargetType.Application when platform.Type == PlatformType.Mac && !target.Rules.ConsoleApplication && !target.Rules.IsTest:
                 products.Add(MacPlatform.BundlePath(outputPath, baseName)); // the .app directory
                 symbols.Add(MacPlatform.BundlePath(outputPath, baseName) + ".dSYM");
@@ -111,6 +115,20 @@ public static class Installer
                     string directory = android ? Path.Combine("lib", abi) : manifest.Type == TargetType.Application || extension is ".exe" or ".dll" ? "bin" : "lib";
                     string destination = Path.Combine(prefix, directory, Path.GetFileName(product));
                     installed.Add(Copy(product, destination));
+                    // iOS device apps also as .ipa (Payload/X.app), the format for distribution tools.
+                    if (platform is IosPlatform { Simulator: false } && extension == ".app")
+                    {
+                        string ipa = Path.Combine(prefix, Path.GetFileNameWithoutExtension(product) + ".ipa");
+                        string staging = Path.Combine(Path.GetTempPath(), "beast-ipa-" + Guid.NewGuid().ToString("N"));
+                        try
+                        {
+                            CopyDirectory(new DirectoryInfo(product), Path.Combine(staging, "Payload", Path.GetFileName(product)));
+                            if (File.Exists(ipa)) File.Delete(ipa);
+                            ZipFile.CreateFromDirectory(staging, ipa, CompressionLevel.Optimal, includeBaseDirectory: false);
+                            installed.Add(ipa);
+                        }
+                        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+                    }
                 }
                 if (symbols)
                     foreach (string symbol in manifest.Symbols)
@@ -179,7 +197,9 @@ public static class Installer
             platform = new AndroidPlatform(abi);
             Log.TraceInfo($"Running Android tests on {serial} ({abi}).");
         }
-        else if (!platform.CanRunOnHost)
+        else if (platform is IosPlatform { Simulator: false })
+            throw new InvalidOperationException("iOS tests run in the simulator: --platform IOSSimulator.");
+        else if (!platform.CanRunOnHost && platform is not IosPlatform)
             throw new InvalidOperationException($"{platform.PlatformName} test executables do not run on this machine. Build them with 'build', run them on a matching host.");
         string projectName = new DirectoryInfo(project).Name;
         var names = ResolveTargets(project, platform, configuration, targets, tests: true);
@@ -205,6 +225,8 @@ public static class Installer
                         libraries.Add(Path.Combine(android.ToolchainRoot, "sysroot", "usr", "lib", android.Triple, "libc++_shared.so"));
                     exit = await AndroidRunner.RunTestAsync(adb, serial, Path.Combine(binaries, name), libraries, target.Rules.TestArguments, timeout);
                 }
+                else if (platform is IosPlatform)
+                    exit = await IosRunner.SpawnAsync(platform.ExecutablePath(binaries, name), target.Rules.TestArguments, timeout);
                 else exit = await RunLocalAsync(platform.ExecutablePath(binaries, name), binaries, target.Rules.TestArguments, timeout);
             }
             catch (TimeoutException ex)

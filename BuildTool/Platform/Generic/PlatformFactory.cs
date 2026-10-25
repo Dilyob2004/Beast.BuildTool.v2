@@ -27,10 +27,14 @@ public static class PlatformFactory
                 return [new LinuxPlatform(ParseUnixArch(arch, "Linux"))];
             case "linuxarm64" or "linux-arm64":
                 return [new LinuxPlatform(PlatformArch.ARM64)];
+            case "ios":
+                return [new IosPlatform(simulator: false)];
+            case "iossimulator" or "ios-simulator" or "simulator":
+                return [new IosPlatform(simulator: true, ParseUnixArch(arch, "iOS Simulator"))];
             case "mac" or "macos" or "osx" or "darwin":
                 return [new MacPlatform(ParseUnixArch(arch, "macOS"))];
             default:
-                throw new ArgumentException($"Unsupported platform '{platform}'. Use Windows (--arch x64|arm64), Linux (--arch x64|arm64), Mac (--arch arm64|x64) or Android (--arch arm64-v8a|x86_64).");
+                throw new ArgumentException($"Unsupported platform '{platform}'. Use Windows (--arch x64|arm64), Linux (--arch x64|arm64), Mac (--arch arm64|x64), IOS, IOSSimulator (--arch arm64|x64) or Android (--arch arm64-v8a|x86_64).");
         }
     }
 

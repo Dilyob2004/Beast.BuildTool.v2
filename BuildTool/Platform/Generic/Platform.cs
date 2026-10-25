@@ -25,7 +25,8 @@ namespace Beast.BuildTool
         Android,
         Windows,
         Linux,
-        Mac
+        Mac,
+        IOS
     }
     public abstract class Platform
     {

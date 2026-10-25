@@ -184,7 +184,9 @@ Test("platform source rules (Linux, macOS)", () =>
 {
     Check(SourceFilter.IsOtherPlatform("Private/Linux/X.cpp", PlatformType.Mac) && !SourceFilter.IsOtherPlatform("Private/Linux/X.cpp", PlatformType.Linux), "Linux directory");
     Check(SourceFilter.IsOtherPlatform("Mac/X.cpp", PlatformType.Linux) && !SourceFilter.IsOtherPlatform("MacOS/X.cpp", PlatformType.Mac), "Mac directory");
-    Check(SourceFilter.IsOtherPlatform("IOS/X.cpp", PlatformType.Mac), "IOS is reserved");
+    Check(SourceFilter.IsOtherPlatform("IOS/X.cpp", PlatformType.Mac) && !SourceFilter.IsOtherPlatform("IOS/X.cpp", PlatformType.IOS), "IOS directory");
+    Check(SourceFilter.IsCompiledFor("A.mm", PlatformType.IOS) && SourceFilter.IsCompiledFor("A.S", PlatformType.IOS), "iOS sources");
+    Expect(() => SanitizerSupport.Validate(PlatformType.IOS, Sanitizer.Thread, "X"), "not supported");
     Check(SourceFilter.IsCompiledFor("A.S", PlatformType.Linux) && SourceFilter.IsCompiledFor("A.s", PlatformType.Mac) && !SourceFilter.IsCompiledFor("A.S", PlatformType.Windows), ".S/.s");
     Check(SourceFilter.IsCompiledFor("A.asm", PlatformType.Windows) && !SourceFilter.IsCompiledFor("A.asm", PlatformType.Linux), ".asm");
     Check(SourceFilter.IsCompiledFor("A.mm", PlatformType.Mac) && !SourceFilter.IsCompiledFor("A.m", PlatformType.Linux), ".m/.mm");

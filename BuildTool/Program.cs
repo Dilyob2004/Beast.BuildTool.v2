@@ -120,6 +120,14 @@ internal static class Program
             await AndroidRunner.RunAsync(project, target, configuration, GetOptionalArgument(args, "avd"), GetOptionalArgument(args, "device"), args.HasFlag("wait"));
             return 0;
         }
+        if (platform is IosPlatform ios)
+        {
+            string bundle = IosPlatform.BundlePath(Path.Combine(project, "Binaries", platform.PlatformName, configuration.ToString()), target);
+            int code = ios.Simulator ? await IosRunner.RunSimulatorAppAsync(bundle, IosPlatform.BundleIdentifier(target))
+                : await IosRunner.RunDeviceAppAsync(bundle, IosPlatform.BundleIdentifier(target), GetOptionalArgument(args, "device"));
+            Log.TraceInfo($"{target} exited with code {code}.");
+            return code;
+        }
         if (!platform.CanRunOnHost)
             throw new InvalidOperationException($"{platform.PlatformName} executables do not run on this machine ({(HostPlatform.IsWindows ? "Windows" : HostPlatform.IsMacOS ? "macOS" : "Linux")} {HostPlatform.Architecture}).");
         string binaries = Path.Combine(project, "Binaries", platform.PlatformName, configuration.ToString());
@@ -136,8 +144,8 @@ internal static class Program
             target = ProjectModel.Load(project, platform, configuration).SelectTarget(name);
         if (target.Rules.Type != TargetType.Application)
             throw new InvalidOperationException($"Target '{target.Name}' is a {target.Rules.Type}; run starts Application targets.");
-        if (target.Rules.IsTest && platform is AndroidPlatform)
-            throw new InvalidOperationException($"'{target.Name}' is an Android test executable; use the test command.");
+        if (target.Rules.IsTest && platform is AndroidPlatform or IosPlatform)
+            throw new InvalidOperationException($"'{target.Name}' is a test executable; use the test command.");
         return target.Name;
     }
 
@@ -248,9 +256,9 @@ Beast BuildTool
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
-  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait]
-  beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait]
-  beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
+  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait]
+  beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait]
+  beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast clean [project-path] [--target <name>]   (without --target: the whole Intermediate/Build)

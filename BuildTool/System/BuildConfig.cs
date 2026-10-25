@@ -42,6 +42,28 @@ public sealed class BuildConfig
 
     [JsonPropertyName("mac")]
     public MacBuildConfig Mac { get; set; } = new();
+
+    [JsonPropertyName("ios")]
+    public IosBuildConfig Ios { get; set; } = new();
+}
+
+/// <summary>iOS devices and the iOS Simulator (Xcode).</summary>
+public sealed class IosBuildConfig
+{
+    /// <summary>Minimum iOS version (MinimumOSVersion, --target=...-apple-ios&lt;version&gt;).</summary>
+    [JsonPropertyName("deploymentTarget")] public string DeploymentTarget { get; set; } = "15.0";
+    /// <summary>CFBundleIdentifier of applications; empty: com.beast.&lt;target&gt;.</summary>
+    [JsonPropertyName("bundleIdentifier")] public string BundleIdentifier { get; set; } = "";
+    /// <summary>Device builds: signing identity, e.g. "Apple Development: Name (TEAMID)" (security find-identity -v -p codesigning).</summary>
+    [JsonPropertyName("signingIdentity")] public string SigningIdentity { get; set; } = "";
+    /// <summary>Device builds: .mobileprovision file for the bundle identifier (its entitlements are used).</summary>
+    [JsonPropertyName("provisioningProfile")] public string ProvisioningProfile { get; set; } = "";
+    /// <summary>Simulator for run/test (name such as "iPhone 16" or a UDID); empty: a booted one or the first iPhone.</summary>
+    [JsonPropertyName("simulator")] public string Simulator { get; set; } = "";
+    /// <summary>Device for run (name or identifier from xcrun devicectl list devices); --device overrides.</summary>
+    [JsonPropertyName("device")] public string Device { get; set; } = "";
+    /// <summary>Explicit C++ driver (another Clang, e.g. for C++20 modules); empty: Apple clang.</summary>
+    [JsonPropertyName("cxx")] public string Cxx { get; set; } = "";
 }
 
 /// <summary>Native Linux targets (Clang or GCC).</summary>

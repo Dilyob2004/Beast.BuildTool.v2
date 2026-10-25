@@ -82,7 +82,7 @@ public sealed class GenericProjectBuilder
             foreach (var module in modules)
                 link.InputLibraries.AddRange(module.InputLibraries.Select(p => steps.Expand(module, p)).Select(p => p.IndexOfAny(['/', '\\']) >= 0 ? ProjectModel.ResolvePath(module, p) : p));
         }
-        if (platform.Type == PlatformType.Mac)
+        if (platform.Type is PlatformType.Mac or PlatformType.IOS)
             foreach (var module in modules) link.InputLibraries.AddRange(module.Frameworks.Select(f => "-framework " + f));
         var modulePlan = CppModulePlan.Create(model, target, platform, configuration);
         var objectsByModule = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -128,7 +128,7 @@ public sealed class GenericProjectBuilder
                     packageModules.Add(module);
                     link.InputLibraries.AddRange(module.InputLibraries.Select(p => dependencyPaths.Expand(module, p)).Select(p => p.IndexOfAny(['/', '\\']) >= 0 ? ProjectModel.ResolvePath(module, p) : p));
                     link.DelayLoadLibraries.AddRange(module.DelayLoadLibraries);
-                    if (platform.Type == PlatformType.Mac) link.InputLibraries.AddRange(module.Frameworks.Select(f => "-framework " + f));
+                    if (platform.Type is PlatformType.Mac or PlatformType.IOS) link.InputLibraries.AddRange(module.Frameworks.Select(f => "-framework " + f));
                     link.CustomArgs.AddRange(module.LinkerArguments.Select(a => dependencyPaths.Expand(module, a)));
                 }
             }
@@ -153,7 +153,17 @@ public sealed class GenericProjectBuilder
                 mac.WriteBundleInfo(outputPath, target.Name, target.Rules.Version);
                 linkOutput = MacPlatform.BundleExecutable(outputPath, target.Name);
             }
+            // iOS: every application is an .app; the program is linked in the build directory and
+            // copied into the bundle together with the dylibs of shared dependency targets, then signed.
+            bool iosApplication = platform is IosPlatform && target.Rules.Type == TargetType.Application && !target.Rules.IsTest;
+            if (iosApplication) linkOutput = Path.Combine(buildPath, "Program", target.Name);
             platform.LinkFiles(executor, link, linkOutput);
+            if (iosApplication)
+            {
+                var embedded = model.TargetDependencies(target).Where(t => t.Rules.Type == TargetType.SharedLibrary)
+                    .Select(t => TargetOutput(platform, outputPath, t)).Concat(PackageManagers.RuntimeBinaries(projectPath, platform, configuration)).Distinct().ToList();
+                ((IosPlatform)platform).AddBundle(executor, outputPath, buildPath, target.Name, target.Rules.Version, linkOutput, embedded);
+            }
         }
         steps.AddRuntimeCopies(executor);
         var runtimeFiles = new List<string>(steps.RuntimeOutputs);

@@ -64,6 +64,8 @@ put Source/Core/Linux/CoreLinux.cpp '#include "Core.h"
 int PlatformTag() { return 1; }'
 put Source/Core/Mac/CoreMac.cpp '#include "Core.h"
 int PlatformTag() { return 2; }'
+put Source/Core/IOS/CoreIOS.cpp '#include "Core.h"
+int PlatformTag() { return 4; }'
 put Source/Core/Windows/CoreWindows.cpp '#error Windows sources must not be compiled here'
 put Source/Core/Android/CoreAndroid.cpp '#include "Core.h"
 #if !defined(__ANDROID__)
@@ -287,6 +289,22 @@ if [[ $os == Mac ]]; then
         pass 'C++20 modules on macOS (Homebrew LLVM)'
     else skipped+=('C++20 modules on macOS (no Homebrew LLVM)'); fi
 fi
+
+# iOS Simulator (macOS with Xcode): Game.app with Engine embedded in Frameworks, tests via simctl.
+if [[ $os == Mac ]] && xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1 && xcrun simctl list devices available | grep -q iPhone; then
+    sim=IOSSimulator; [[ "$(uname -m)" == x86_64 ]] && sim=IOSSimulatorX64
+    beast build "$project" --target Game --platform IOSSimulator --config Debug
+    app="$project/Binaries/$sim/Debug/Game.app"
+    check '[[ -x "$app/Game" && -f "$app/Frameworks/libEngine.dylib" ]] && grep -q "<string>iPhoneSimulator</string>" "$app/Info.plist"' 'Game.app layout'
+    check 'codesign --verify "$app"' 'Game.app is not signed'
+    beast build "$project" --target Game --platform IOSSimulator --config Debug
+    check '! grep -qE "Done: [1-9][0-9]* executed" "$work/last.log"' 'no-op iOS build did work'
+    beast test "$project" --platform IOSSimulator --target CoreTests
+    if "${tool[@]}" test "$project" --platform IOSSimulator --target FailingTests >"$work/ios-test.log" 2>&1; then echo 'FAIL: failing iOS test passed'; exit 1; fi
+    "${tool[@]}" run "$project" --platform IOSSimulator --target Game --no-build >"$work/ios-run.log" 2>&1 || { cat "$work/ios-run.log"; annotate 'iOS run failed' "$work/ios-run.log"; exit 1; }
+    check 'grep -q "42 42 42 42" "$work/ios-run.log"' 'Game output in the simulator'
+    pass 'iOS Simulator (app bundle, embedded dylib, signing, test, run)'
+elif [[ $os == Mac ]]; then skipped+=('iOS Simulator (no Xcode iOS SDK or simulator)'); fi
 
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then

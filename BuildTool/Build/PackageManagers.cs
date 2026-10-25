@@ -159,6 +159,7 @@ public static class PackageManagers
             AndroidPlatform android => android.Abi == "x86_64" ? "x64-android" : "arm64-android",
             LinuxPlatform => platform.Architecture == PlatformArch.ARM64 ? "arm64-linux" : "x64-linux",
             MacPlatform => platform.Architecture == PlatformArch.ARM64 ? "arm64-osx" : "x64-osx",
+            IosPlatform ios => !ios.Simulator ? "arm64-ios" : ios.Architecture == PlatformArch.ARM64 ? "arm64-ios-simulator" : "x64-ios",
             _ => (platform.Architecture == PlatformArch.ARM64 ? "arm64-windows" : "x64-windows") + (staticRuntime ? "-static" : "")
         };
     }

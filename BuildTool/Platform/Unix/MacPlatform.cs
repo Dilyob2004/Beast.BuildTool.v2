@@ -30,7 +30,7 @@ public sealed class MacPlatform : UnixPlatform
     public override string ModulesUnsupportedReason =>
         "Apple clang does not support C++20 named modules; install LLVM (brew install llvm) and set \"mac\": { \"cxx\": \"/opt/homebrew/opt/llvm/bin/clang++\" }";
 
-    private static bool IsAppleClang(string compiler)
+    internal static bool IsAppleClang(string compiler)
     {
         try
         {
@@ -60,12 +60,14 @@ public sealed class MacPlatform : UnixPlatform
         Log.TraceVerbose($"macOS toolchain: {Compiler}, SDK {SdkRoot}, minimum macOS {DeploymentTarget}");
     }
 
-    /// <summary>Runs xcrun for the macosx SDK and returns its single output line.</summary>
-    private static string Xcrun(params string[] arguments)
+    private static string Xcrun(params string[] arguments) => Xcrun("macosx", arguments);
+
+    /// <summary>Runs xcrun for an SDK (macosx, iphoneos, iphonesimulator) and returns its single output line.</summary>
+    internal static string Xcrun(string sdk, params string[] arguments)
     {
         var info = new ProcessStartInfo("xcrun") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         info.ArgumentList.Add("--sdk");
-        info.ArgumentList.Add("macosx");
+        info.ArgumentList.Add(sdk);
         foreach (string argument in arguments) info.ArgumentList.Add(argument);
         try
         {
@@ -190,12 +192,14 @@ public sealed class MacPlatform : UnixPlatform
         Log.TraceInfo($"Signed {Path.GetFileName(bundle)} ({(identity == "-" ? "ad-hoc" : identity)}).");
     }
 
-    public override void ArchiveFiles(CommandExecutor executor, List<string> objects, string outputPath)
+    public override void ArchiveFiles(CommandExecutor executor, List<string> objects, string outputPath) => AddLibtoolArchive(executor, Archiver, objects, outputPath);
+
+    /// <summary>Apple libtool reads long object lists from -filelist (it has no @response files).</summary>
+    internal static void AddLibtoolArchive(CommandExecutor executor, string libtool, List<string> objects, string outputPath)
     {
-        // Apple libtool reads long object lists from -filelist (it has no @response files).
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         string list = CommandUtilities.WriteResponseFile(outputPath, string.Join("\n", objects));
-        executor.AddCommand(new CommandContext(Archiver, $"-static -no_warning_for_no_symbols -o \"{outputPath}\" -filelist \"{list}\"",
+        executor.AddCommand(new CommandContext(libtool, $"-static -no_warning_for_no_symbols -o \"{outputPath}\" -filelist \"{list}\"",
             CommandType.Link, [outputPath], objects.Append(list).ToList(), false, $"Archiving {Path.GetFileName(outputPath)}...", recreateOutputs: true));
     }
 

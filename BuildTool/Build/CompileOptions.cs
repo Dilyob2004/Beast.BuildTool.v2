@@ -75,7 +75,7 @@ public static class SanitizerSupport
         Sanitizer supported = platform switch
         {
             PlatformType.Windows => Sanitizer.Address,
-            PlatformType.Android => Sanitizer.Address | Sanitizer.Undefined,
+            PlatformType.Android or PlatformType.IOS => Sanitizer.Address | Sanitizer.Undefined,
             _ => Sanitizer.Address | Sanitizer.Undefined | Sanitizer.Thread
         };
         if (sanitizers.HasFlag(Sanitizer.Address) && sanitizers.HasFlag(Sanitizer.Thread))
@@ -106,7 +106,7 @@ public static class SourceFilter
         ["Android"] = PlatformType.Android,
         ["Linux"] = PlatformType.Linux,
         ["Mac"] = PlatformType.Mac, ["MacOS"] = PlatformType.Mac, ["OSX"] = PlatformType.Mac,
-        ["IOS"] = null,
+        ["IOS"] = PlatformType.IOS,
     };
 
     public static IReadOnlyCollection<string> PlatformDirectoryNames => PlatformDirectories.Keys;
@@ -125,7 +125,7 @@ public static class SourceFilter
     {
         ".asm" => platform == PlatformType.Windows,
         ".s" => platform != PlatformType.Windows,
-        ".m" or ".mm" => platform == PlatformType.Mac,
+        ".m" or ".mm" => platform is PlatformType.Mac or PlatformType.IOS,
         _ => true
     };
 
