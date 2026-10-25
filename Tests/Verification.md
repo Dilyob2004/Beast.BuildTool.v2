@@ -346,3 +346,12 @@ jobs green from commit 582af0a.
   `run` with the program's output — passed. CI summary: macOS 9 groups (skipped: GCC, modules
   without Homebrew LLVM), Linux 10 groups, Windows all steps.
 - Not verified: iOS device builds and signing (no device or certificate in CI), `devicectl` run.
+
+## Project templates — 2026-10-25
+
+- `beast new` on GitHub runners: console program on Linux and Windows, AppKit `Template.app` on macOS
+  (window, greeting on stdout), UIKit app in the iOS Simulator — all built and started
+  (`BEAST_QUIT_AFTER_LAUNCH`). The release workflow ran the same check with its own archives on
+  Windows x64, Linux x64, macOS arm64 and macOS x64.
+- Fixed: the iOS template quit before simctl relayed its output; it now quits one second after launch
+  in automated runs. CI: macOS 10 groups, Linux 11 groups, Windows all steps.
