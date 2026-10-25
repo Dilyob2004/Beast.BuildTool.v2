@@ -334,3 +334,15 @@ jobs green from commit 582af0a.
   sanitizers, .app bundle. Fixed: Apple clang has no named modules (clear error, `mac.cxx` for
   Homebrew LLVM); build state files moved out of .app bundles (codesign failed on them).
 - Test scripts now report failures as GitHub annotations with the end of the log.
+
+## Releases and iOS — 2026-10-25
+
+- Release workflow (manual run): self-contained archives for win-x64, win-arm64, linux-x64,
+  linux-arm64, osx-arm64, osx-x64 built; `new`/`build`/`run` smoke tests passed on Windows x64,
+  Linux x64, macOS arm64 and macOS x64 (Rosetta 2). The arm64 Windows/Linux archives are built but
+  not run.
+- iOS Simulator on GitHub's macOS runner: Game.app (Info.plist, libEngine.dylib in Frameworks, ad-hoc
+  signature, `codesign --verify`), no-op rebuild, `test` through `simctl spawn` (pass and fail),
+  `run` with the program's output — passed. CI summary: macOS 9 groups (skipped: GCC, modules
+  without Homebrew LLVM), Linux 10 groups, Windows all steps.
+- Not verified: iOS device builds and signing (no device or certificate in CI), `devicectl` run.
