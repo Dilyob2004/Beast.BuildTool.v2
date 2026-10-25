@@ -199,7 +199,7 @@ public static class Installer
         }
         else if (platform is IosPlatform { Simulator: false })
             throw new InvalidOperationException("iOS tests run in the simulator: --platform IOSSimulator.");
-        else if (!platform.CanRunOnHost && platform is not IosPlatform)
+        else if (!platform.CanRunOnHost && platform.Emulator == null && platform is not IosPlatform)
             throw new InvalidOperationException($"{platform.PlatformName} test executables do not run on this machine. Build them with 'build', run them on a matching host.");
         string projectName = new DirectoryInfo(project).Name;
         var names = ResolveTargets(project, platform, configuration, targets, tests: true);
@@ -227,7 +227,7 @@ public static class Installer
                 }
                 else if (platform is IosPlatform)
                     exit = await IosRunner.SpawnAsync(platform.ExecutablePath(binaries, name), target.Rules.TestArguments, timeout);
-                else exit = await RunLocalAsync(platform.ExecutablePath(binaries, name), binaries, target.Rules.TestArguments, timeout);
+                else exit = await platform.RunProgramAsync(platform.ExecutablePath(binaries, name), binaries, target.Rules.TestArguments, timeout);
             }
             catch (TimeoutException ex)
             {

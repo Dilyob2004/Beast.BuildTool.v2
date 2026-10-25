@@ -17,17 +17,8 @@ internal static class AndroidRunner
         if (!File.Exists(apk))
             throw new FileNotFoundException("Android APK was not found. Build the project first or omit --no-build.", apk);
 
-        AndroidBuildConfig android = BuildConfigManager.Config.Android;
-        string sdkRoot = Environment.ExpandEnvironmentVariables(android.SdkRoot);
-        string adb = Path.Combine(sdkRoot, "platform-tools", HostPlatform.Executable("adb"));
-        string emulator = Path.Combine(sdkRoot, "emulator", HostPlatform.Executable("emulator"));
-        if (!File.Exists(adb)) throw new FileNotFoundException("Android Debug Bridge (adb) was not found.", adb);
-        // The emulator is needed only to start an AVD; an explicitly selected device may be a phone.
-        if (!File.Exists(emulator) && string.IsNullOrWhiteSpace(requestedDevice))
-            throw new FileNotFoundException("Android Emulator was not found. Connect a device and pass --device <serial>, or install the emulator.", emulator);
-
-        string serial = await ResolveDeviceAsync(adb, emulator, android, requestedAvd, requestedDevice);
-        await WaitForBootAsync(adb, serial, android.EmulatorBootTimeoutSeconds);
+        // The only connected device or emulator is used without --device; otherwise an AVD is started.
+        var (adb, serial) = await ConnectAsync(requestedAvd, requestedDevice);
 
         Log.TraceInfo($"Installing Android APK on {serial}...");
         await RunCheckedAsync(adb, ["-s", serial, "install", "-r", apk], "APK installation failed");

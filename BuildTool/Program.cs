@@ -128,10 +128,10 @@ internal static class Program
             Log.TraceInfo($"{target} exited with code {code}.");
             return code;
         }
-        if (!platform.CanRunOnHost)
+        if (!platform.CanRunOnHost && platform.Emulator == null)
             throw new InvalidOperationException($"{platform.PlatformName} executables do not run on this machine ({(HostPlatform.IsWindows ? "Windows" : HostPlatform.IsMacOS ? "macOS" : "Linux")} {HostPlatform.Architecture}).");
         string binaries = Path.Combine(project, "Binaries", platform.PlatformName, configuration.ToString());
-        int exit = await Installer.RunLocalAsync(platform.ExecutablePath(binaries, target), binaries, []);
+        int exit = await platform.RunProgramAsync(platform.ExecutablePath(binaries, target), binaries, []);
         Log.TraceInfo($"{target} exited with code {exit}.");
         return exit;
     }

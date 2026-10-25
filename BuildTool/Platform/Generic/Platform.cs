@@ -45,6 +45,17 @@ namespace Beast.BuildTool
         public virtual string LibraryPrefix => Type == PlatformType.Windows ? "" : "lib";
         /// <summary>True when executables built for this platform run on the machine running Beast.</summary>
         public virtual bool CanRunOnHost => false;
+        /// <summary>
+        /// A program that runs this platform's executables on this machine when they cannot run
+        /// natively (Linux: qemu-user for another architecture), with its leading arguments.
+        /// </summary>
+        public virtual (string Program, string[] Arguments)? Emulator => null;
+
+        /// <summary>Runs a built program (natively or through the emulator); returns its exit code.</summary>
+        public Task<int> RunProgramAsync(string executable, string workingDirectory, IEnumerable<string> arguments, int timeoutSeconds = 0) =>
+            Emulator is { } emulator
+                ? Installer.RunLocalAsync(emulator.Program, workingDirectory, emulator.Arguments.Append(executable).Concat(arguments), timeoutSeconds)
+                : Installer.RunLocalAsync(executable, workingDirectory, arguments, timeoutSeconds);
         /// <summary>BMI file extension of C++20 modules (.ifc, .pcm, .gcm); null when the compiler is not supported.</summary>
         public virtual string? ModuleInterfaceExtension => null;
         /// <summary>Why C++20 modules are unavailable (when ModuleInterfaceExtension is null).</summary>

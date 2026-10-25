@@ -16,6 +16,23 @@ public sealed class LinuxPlatform : UnixPlatform
     public override bool IsClang { get; }
     public string Triple => (Architecture == PlatformArch.ARM64 ? "aarch64" : "x86_64") + "-linux-gnu";
     public override bool CanRunOnHost => HostPlatform.IsLinux && Architecture == HostPlatform.Architecture;
+
+    /// <summary>
+    /// Another architecture on a Linux host runs through qemu-user (qemu-aarch64 / qemu-x86_64) with
+    /// the sysroot (linux.sysroot, else the cross toolchain's /usr/&lt;triple&gt;) as its library root.
+    /// </summary>
+    public override (string Program, string[] Arguments)? Emulator
+    {
+        get
+        {
+            if (CanRunOnHost || !HostPlatform.IsLinux) return null;
+            string? qemu = FindOnPath(Architecture == PlatformArch.ARM64 ? "qemu-aarch64" : "qemu-x86_64")
+                ?? FindOnPath(Architecture == PlatformArch.ARM64 ? "qemu-aarch64-static" : "qemu-x86_64-static");
+            if (qemu == null) return null;
+            string root = _sysroot.Length > 0 ? _sysroot : Path.Combine("/usr", Triple);
+            return (qemu, Directory.Exists(root) ? ["-L", root] : []);
+        }
+    }
     protected override string Label => Architecture == HostPlatform.Architecture ? "Linux" : "Linux " + (Architecture == PlatformArch.ARM64 ? "arm64" : "x86_64");
     private readonly string _sysroot;
     private readonly bool _cross;

@@ -308,6 +308,20 @@ if [[ $os == Mac ]] && xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>
     pass 'iOS Simulator (app bundle, embedded dylib, signing, test, run)'
 elif [[ $os == Mac ]]; then skipped+=('iOS Simulator (no Xcode iOS SDK or simulator)'); fi
 
+# Linux arm64 on an x86_64 host: Clang (--target) and the GCC cross compiler, run through qemu-user.
+if [[ $os == Linux && "$(uname -m)" == x86_64 ]] && command -v qemu-aarch64 >/dev/null && command -v aarch64-linux-gnu-g++ >/dev/null; then
+    for compiler in clang gcc; do
+        if [[ $compiler == gcc ]]; then config "c.setdefault('linux', {})['cxx'] = 'aarch64-linux-gnu-g++'"; beast clean "$project"; fi
+        beast build "$project" --target Game --arch arm64 --config Debug
+        check 'file "$project/Binaries/LinuxArm64/Debug/Game" | grep -q aarch64' "Game is not an arm64 program ($compiler)"
+        "${tool[@]}" run "$project" --target Game --arch arm64 --no-build >"$work/arm64.log" 2>&1 || { cat "$work/arm64.log"; annotate "arm64 run failed ($compiler)" "$work/arm64.log"; exit 1; }
+        grep -q "42 42 42 42" "$work/arm64.log" || { cat "$work/arm64.log"; annotate "arm64 Game output ($compiler)" "$work/arm64.log"; exit 1; }
+        beast test "$project" --target CoreTests --arch arm64
+    done
+    config "c['linux']['cxx'] = ''"
+    pass 'Linux arm64 cross build (Clang, GCC; run and test through qemu-aarch64)'
+elif [[ $os == Linux ]]; then skipped+=('Linux arm64 (no qemu-aarch64 or aarch64-linux-gnu-g++)'); fi
+
 # Project templates from 'beast new': a console program on Linux, an AppKit .app on macOS and a
 # UIKit .app in the iOS Simulator (BEAST_QUIT_AFTER_LAUNCH makes the windowed apps quit once started).
 beast new Template --path "$work"
