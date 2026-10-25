@@ -43,7 +43,23 @@ iOS пока нет. Генераторов Ninja/Make нет и не плани
 контентный кеш и ограничения параллелизма по памяти. Есть общий файловый кеш
 и экспериментальный worker для общей файловой системы. UBA не используется.
 
+## Установка
+
+Готовые сборки — на странице [Releases](https://github.com/Dilyob2004/Beast.BuildTool.v2/releases):
+`beast-<версия>-<платформа>.zip`/`.tar.gz` для `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
+`osx-arm64`, `osx-x64`. Они самодостаточные: .NET устанавливать не нужно. Распакуйте архив и добавьте
+папку в `PATH`; команда — `beast` (`beast.cmd` на Windows), проверка — `beast version`. Компилятор
+платформы по-прежнему нужен (MSVC, Clang/GCC, Xcode, Android NDK). На macOS архив, скачанный
+браузером, помечен карантином: `xattr -dr com.apple.quarantine beast-*`. Суммы SHA-256 — в
+`SHA256SUMS.txt`.
+
+Выпуск новой версии: `git tag v2.1.0 && git push origin v2.1.0` — workflow `Release` собирает все
+платформы, проверяет `new`/`build`/`run` на Windows x64, Linux x64 и macOS и публикует релиз. Ручной
+запуск (Actions → Release → Run workflow) только собирает архивы как артефакты.
+
 ## Быстрый старт
+
+Из исходников (нужен .NET 8 SDK):
 
 Нужны .NET 8 SDK (или новее с поддержкой .NET 8) и компилятор платформы: на Windows —
 Visual Studio C++ Desktop (MSVC и Windows SDK), на Linux — `clang` (или `g++`), на macOS —

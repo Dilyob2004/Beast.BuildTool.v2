@@ -10,6 +10,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+    <!-- Release builds pass -p:Version=<tag>; local builds are "2.0.0-dev". -->
+    <Version>2.0.0-dev</Version>
+    <Product>Beast BuildTool</Product>
   </PropertyGroup>
 
   <ItemGroup>

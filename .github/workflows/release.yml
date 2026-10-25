@@ -1,0 +1,98 @@
+# Release builds of Beast: self-contained (no .NET install needed) for Windows, Linux and macOS.
+# A tag "v2.1.0" publishes them as a GitHub release; a manual run (Actions > Release > Run
+# workflow) only builds and uploads them as workflow artifacts.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64,     os: windows-latest, smoke: true }
+          - { rid: win-arm64,   os: windows-latest, smoke: false }
+          - { rid: linux-x64,   os: ubuntu-24.04,   smoke: true }
+          - { rid: linux-arm64, os: ubuntu-24.04,   smoke: false }
+          # The .NET SDK signs macOS app hosts only on a Mac, so both macOS builds run there.
+          - { rid: osx-arm64,   os: macos-latest,   smoke: true }
+          - { rid: osx-x64,     os: macos-latest,   smoke: true } # runs through Rosetta 2
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="2.0.0-dev.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "name=beast-$v-${{ matrix.rid }}" >> "$GITHUB_OUTPUT"
+      - name: Publish
+        run: |
+          out="dist/${{ steps.version.outputs.name }}"
+          # Not single-file: build rules are compiled with Roslyn against the assemblies on disk.
+          dotnet publish BuildTool/Beast.BuildTool.csproj -c Release -r ${{ matrix.rid }} --self-contained true \
+            -p:PublishSingleFile=false -p:Version=${{ steps.version.outputs.version }} \
+            -p:InformationalVersion=${{ steps.version.outputs.version }}+${GITHUB_SHA::7} -o "$out"
+          cp README.md LICENSE "$out/"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            printf '@"%%~dp0Beast.BuildTool.exe" %%*\r\n' > "$out/beast.cmd"
+          else
+            printf '%s\n' '#!/bin/sh' 'dir=$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)' 'exec "$dir/Beast.BuildTool" "$@"' > "$out/beast"
+            chmod +x "$out/beast" "$out/Beast.BuildTool"
+          fi
+      - name: Smoke test (new, build, run)
+        if: matrix.smoke
+        run: |
+          out="$PWD/dist/${{ steps.version.outputs.name }}"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            cmd //c "$(cygpath -w "$out/beast.cmd")" version   # the launcher works
+            beast="$out/Beast.BuildTool.exe"
+          else beast="$out/beast"; fi
+          "$beast" version
+          "$beast" new Hello --path "$RUNNER_TEMP"
+          if [[ "${{ matrix.rid }}" == osx-x64 ]]; then arch="--arch x64"; else arch=""; fi
+          "$beast" build "$RUNNER_TEMP/Hello" --config Release $arch
+          "$beast" run "$RUNNER_TEMP/Hello" --config Release --no-build $arch | tee "$RUNNER_TEMP/run.log"
+          grep -q "Hello from Hello" "$RUNNER_TEMP/run.log"
+      - name: Archive
+        run: |
+          cd dist
+          name="${{ steps.version.outputs.name }}"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then 7z a -tzip "$name.zip" "$name" > /dev/null; else tar -czf "$name.tar.gz" "$name"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.name }}
+          path: dist/${{ steps.version.outputs.name }}.*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Beast BuildTool ${GITHUB_REF_NAME#v}" --generate-notes

@@ -4,6 +4,11 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        if (args.Length == 1 && args[0] is "version" or "--version" or "-v")
+        {
+            Console.WriteLine("Beast BuildTool " + Version);
+            return 0;
+        }
         Log.Init();
         try
         {
@@ -38,6 +43,11 @@ internal static class Program
             Log.Cleanup();
         }
     }
+
+    /// <summary>Informational version: "2.0.0" (release tag) or "2.0.0-dev+&lt;commit&gt;".</summary>
+    internal static string Version =>
+        typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "unknown";
 
     private static int CreateProject(CommandLine args)
     {
@@ -232,6 +242,7 @@ internal static class Program
     {
         Console.WriteLine("""
 Beast BuildTool
+  beast version
   beast worker --queue <shared-directory> --project-root <allowed-directory> --compiler-root <allowed-directory> [--key-env BEAST_WORKER_KEY] [--once] [--idle-timeout <seconds>] [--reserve-mb <MB>]
   beast new <Name> [--path <directory>]
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
