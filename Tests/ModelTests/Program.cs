@@ -24,7 +24,14 @@ void Expect(Action action, string fragment)
 void Test(string name, Action body)
 {
     try { body(); Console.WriteLine("PASS " + name); }
-    catch (Exception ex) { failures++; Console.WriteLine($"FAIL {name}: {ex.Message}"); }
+    catch (Exception ex)
+    {
+        failures++;
+        Console.WriteLine($"FAIL {name}: {ex.Message}");
+        // GitHub Actions annotation: readable without the job log.
+        if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != null)
+            Console.WriteLine("::error title=ModelTests::" + $"{name}: {ex.Message}\n{ex.StackTrace}".Replace("%", "%25").Replace("\r", "").Replace("\n", "%0A"));
+    }
 }
 string Module(string name, string body = "") =>
     $"using Beast.BuildTool;\npublic sealed class {name} : ModuleRules {{ public {name}(ModulesInfo info) {{ PublicIncludePaths.Add(\"Public\"); {body} }} }}\n";
