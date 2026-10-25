@@ -48,6 +48,10 @@ namespace Beast.BuildTool
         public override string PlatformName => Architecture == PlatformArch.ARM64 ? "WindowsArm64" : "Windows";
         public override string? ModuleInterfaceExtension => UsesClangCl ? null : ".ifc";
         public override string ModulesUnsupportedReason => "clang-cl is not supported yet; use windows.compiler \"msvc\"";
+        /// <summary>MSVC 17.5+ ships VC/Tools/MSVC/&lt;version&gt;/modules/std.ixx and std.compat.ixx.</summary>
+        public override string? StandardModuleSource(string name) =>
+            !UsesClangCl && VCToolPath != null && File.Exists(Path.Combine(VCToolPath, "modules", name + ".ixx")) ? Path.Combine(VCToolPath, "modules", name + ".ixx") : null;
+        public override string StandardModuleUnsupportedReason => UsesClangCl ? ModulesUnsupportedReason : "this MSVC has no modules/std.ixx (Visual Studio 2022 17.5 or newer is needed)";
         public override bool CanRunOnHost => HostPlatform.IsWindows && (Architecture != PlatformArch.ARM64 || HostPlatform.IsArm64);
 
 

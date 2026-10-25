@@ -344,6 +344,34 @@ if [[ $os == Linux && "$(uname -m)" == x86_64 ]] && command -v qemu-aarch64 >/de
     pass 'Linux arm64 cross build (Clang, GCC; run and test through qemu-aarch64)'
 elif [[ $os == Linux ]]; then skipped+=('Linux arm64 (no qemu-aarch64 or aarch64-linux-gnu-g++)'); fi
 
+# import std (Linux, Clang with libc++): a static library target exports module Text built on std,
+# the program imports std.compat and Text; std is compiled once, by the library target.
+if [[ $os == Linux ]] && ls /usr/lib/llvm-*/share/libc++/v1/std.cppm >/dev/null 2>&1 && command -v clang++ >/dev/null; then
+    std="$work/StdDemo"
+    beast new StdDemo --path "$work"
+    rm -rf "$std/Source"
+    project_saved="$project"; project="$std"
+    config "c.setdefault('linux', {})['stdlib'] = 'libc++'"
+    module Text ''
+    put Source/Text/Text.cppm 'export module Text;
+import std;
+export std::string Greeting(std::string_view name) { return std::format("Hello, {}!", name); }'
+    module App 'PrivateDependencies.Add("Text");'
+    put Source/App/Main.cpp 'import std.compat;
+import Text;
+int main() { std::vector<int> v{20, 22}; std::printf("%s %d\n", Greeting("std").c_str(), std::ranges::fold_left(v, 0, std::plus{})); }'
+    target TextLib 'Type = TargetType.StaticLibrary; Modules.Add("Text"); CppVersion = CppVersion.Latest;'
+    target StdDemo 'Modules.Add("App"); TargetDependencies.Add("TextLib"); CppVersion = CppVersion.Latest;'
+    project="$project_saved"
+    beast build "$std" --config Debug
+    check 'grep -q "Compiling std.cppm" "$work/last.log" && grep -q "Compiling std.compat.cppm" "$work/last.log"' 'standard library modules not compiled'
+    check '[[ "$("$std/Binaries/$platform/Debug/StdDemo")" == "Hello, std! 42" ]]' 'import std program output'
+    check '[[ $(ls "$std"/Intermediate/Build/$platform/Debug/*/Modules/std.pcm | wc -l) == 1 ]]' 'std was compiled by more than one target'
+    beast build "$std" --config Debug
+    check '! grep -qE "Done: [1-9][0-9]* executed" "$work/last.log"' 'no-op build recompiled modules'
+    pass 'import std (Clang, libc++)'
+elif [[ $os == Linux ]]; then skipped+=('import std (no libc++ std.cppm)'); fi
+
 # Project templates from 'beast new': a console program on Linux, an AppKit .app on macOS and a
 # UIKit .app in the iOS Simulator (BEAST_QUIT_AFTER_LAUNCH makes the windowed apps quit once started).
 beast new Template --path "$work"

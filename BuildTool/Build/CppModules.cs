@@ -165,7 +165,12 @@ public static partial class CppModules
 /// </summary>
 public sealed class CppModulePlan
 {
-    private sealed record Provider(string Name, string Source, ModuleRules Owner, string Interface, ModuleUnitInfo Info, bool Local);
+    /// <summary>Owner null: a standard library module (std, std.compat), visible to every module.</summary>
+    private sealed record Provider(string Name, string Source, ModuleRules? Owner, string Interface, ModuleUnitInfo Info, bool Local);
+    public static readonly IReadOnlyList<string> StandardModules = ["std", "std.compat"];
+    private readonly List<string> _standardSources = [];
+    /// <summary>The compile environment of the first unit importing std: the std BMI must match its flags.</summary>
+    private CPPEnvironment? _standardEnvironment;
     private readonly Dictionary<string, Provider> _providers = new(StringComparer.Ordinal);
     private readonly ProjectModel _model;
     private readonly BuildTarget _target;
@@ -193,9 +198,29 @@ public sealed class CppModulePlan
                 plan._providers[info.FullName!] = new(info.FullName!, source, module, bmi, info, local);
             }
         }
-        foreach (var dependency in model.TargetDependencies(target))
+        var dependencies = model.TargetDependencies(target);
+        foreach (var dependency in dependencies)
             foreach (var module in model.OwnModules(dependency)) Add(dependency, module, false);
         foreach (var module in model.OwnModules(target)) Add(target, module, true);
+        // import std / std.compat: built from the compiler's own module source (MSVC modules/std.ixx,
+        // libc++ share/libc++/v1/std.cppm) by the deepest target that imports it, so that a target and
+        // its dependency targets share one std BMI.
+        IEnumerable<string> Imports(BuildTarget owner) => model.OwnModules(owner).SelectMany(model.Sources).Select(CppModules.Scan).SelectMany(i => i.Requires);
+        var needed = new HashSet<string>(Imports(target), StringComparer.Ordinal);
+        foreach (var dependency in dependencies) needed.UnionWith(Imports(dependency));
+        if (needed.Contains("std.compat")) needed.Add("std");
+        foreach (string name in StandardModules.Where(needed.Contains))
+        {
+            if (plan._providers.ContainsKey(name)) continue;
+            string source = platform.StandardModuleSource(name)
+                ?? throw new InvalidOperationException($"'import {name};' is not available: {platform.StandardModuleUnsupportedReason}.");
+            string extension = platform.ModuleInterfaceExtension
+                ?? throw new InvalidOperationException($"'import {name};' is not available: {platform.ModulesUnsupportedReason}.");
+            var owner = dependencies.FirstOrDefault(d => Imports(d).Contains(name)) ?? target;
+            string bmi = Path.Combine(model.BuildDirectory(platform.PlatformName, configuration, owner.Name), "Modules", CppModules.InterfaceFileName(name, extension));
+            plan._providers[name] = new(name, source, null, bmi, CppModules.Scan(source), owner == target);
+            if (owner == target) plan._standardSources.Add(source);
+        }
         if (!plan.IsEmpty && model.Targets.Any(t => t.Legacy))
             throw new InvalidOperationException("C++20 modules need an explicit target (*.Target.cs). Run 'beast migrate'.");
         return plan;
@@ -220,15 +245,14 @@ public sealed class CppModulePlan
                 if (!seen.Add(name)) return;
                 if (!_providers.TryGetValue(name, out var provider))
                 {
-                    string hint = name == "std" || name.StartsWith("std.", StringComparison.Ordinal)
-                        ? " 'import std' is not supported yet; use #include."
-                        : " Add a .ixx/.cppm interface that declares 'export module " + name + ";'.";
+                    string hint = " Add a .ixx/.cppm interface that declares 'export module " + name + ";'.";
                     throw new InvalidOperationException($"{from}: module '{name}' was not found in target '{_target.Name}' or its dependency targets.{hint}");
                 }
-                if (direct && !visible.Contains(provider.Owner))
+                if (direct && provider.Owner != null && !visible.Contains(provider.Owner))
                     throw new InvalidOperationException($"{from}: module '{name}' belongs to module rules '{provider.Owner.ModuleName}'. " +
                         $"Add PrivateDependencies.Add(\"{provider.Owner.ModuleName}\") (or PublicDependencies) to '{module.ModuleName}'.");
                 if (provider.Source == source) return; // an interface referencing itself
+                if (provider.Owner == null && provider.Local) _standardEnvironment ??= (CPPEnvironment)environment.Clone();
                 references.Add((name, provider.Interface));
                 // BMIs reference the BMIs they were built with.
                 foreach (string next in provider.Info.Requires) Visit(next, provider.Source, false);
@@ -241,5 +265,29 @@ public sealed class CppModulePlan
                 environment.SourcePrerequisites[source] = prerequisites = [];
             prerequisites.AddRange(references.Select(r => r.Item2));
         }
+    }
+
+    /// <summary>
+    /// Compiles the standard library modules this target provides (after Apply for every module),
+    /// with the flags of their first importer but without warnings; returns the objects to link.
+    /// </summary>
+    public IReadOnlyList<string> CompileStandardModules(Platform platform, CommandExecutor executor, string buildPath)
+    {
+        if (_standardSources.Count == 0 || _standardEnvironment == null) return [];
+        var environment = (CPPEnvironment)_standardEnvironment.Clone();
+        environment.ModuleUnits.Clear();
+        environment.SourcePrerequisites.Clear();
+        environment.PrecompiledHeaderUsage = PrecompiledHeaderFileUsage.None;
+        environment.Warnings = WarningLevel.Off;
+        environment.TreatWarningsAsErrors = false;
+        foreach (string source in _standardSources)
+        {
+            var provider = _providers.Values.Single(p => p.Source == source);
+            var references = provider.Info.Requires.Where(_providers.ContainsKey).Select(n => (n, _providers[n].Interface)).ToList();
+            Directory.CreateDirectory(Path.GetDirectoryName(provider.Interface)!);
+            environment.ModuleUnits[source] = new ModuleCompileUnit(provider.Info, provider.Interface, references);
+            environment.SourcePrerequisites[source] = references.Select(r => r.Interface).ToList();
+        }
+        return platform.CompileCppFiles(executor, environment, _standardSources.ToList(), Path.Combine(buildPath, "Objects", "__StandardModules")).ObjectFiles;
     }
 }

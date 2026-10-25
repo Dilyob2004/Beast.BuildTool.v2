@@ -57,7 +57,7 @@ jobs:
       - name: Toolchain
         # Clang 18 with lld (ThinLTO) and the sanitizer runtimes; GCC 13; CMake and pkg-config;
         # the arm64 cross compiler and qemu-user for the Linux arm64 group.
-        run: sudo apt-get update && sudo apt-get install -y clang lld libclang-rt-18-dev g++ cmake pkg-config unzip g++-aarch64-linux-gnu qemu-user
+        run: sudo apt-get update && sudo apt-get install -y clang lld libclang-rt-18-dev g++ cmake pkg-config unzip g++-aarch64-linux-gnu qemu-user libc++-18-dev libc++abi-18-dev
       - name: Build tool
         run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
       - name: BuildGraphTests

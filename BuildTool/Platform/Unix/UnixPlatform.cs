@@ -33,6 +33,29 @@ public abstract class UnixPlatform : Platform
 
     public override bool IsValid() => File.Exists(Compiler);
     public override string? ModuleInterfaceExtension => IsClang ? ".pcm" : ".gcm";
+    /// <summary>C++ standard library selection for C++ compiles and links (e.g. -stdlib=libc++).</summary>
+    protected virtual IEnumerable<string> CxxLibraryArguments => [];
+    /// <summary>True when C++ code uses libc++ (its std.cppm provides import std).</summary>
+    protected virtual bool UsesLibcxx => false;
+
+    public override string? StandardModuleSource(string name) => IsClang && UsesLibcxx ? LibcxxModuleSource(Compiler, name) : null;
+    public override string StandardModuleUnsupportedReason => !IsClang
+        ? "GCC's std module (GCC 15+) is not supported yet; use Clang with libc++"
+        : !UsesLibcxx ? "it needs libc++: set \"linux\": { \"stdlib\": \"libc++\" } (and install libc++-dev)"
+        : "no share/libc++/v1/std.cppm next to the compiler (install libc++ with its modules, e.g. libc++-18-dev)";
+
+    /// <summary>libc++ installs std.cppm and std.compat.cppm in &lt;llvm&gt;/share/libc++/v1 (bin/clang++ -> ../share).</summary>
+    internal static string? LibcxxModuleSource(string compiler, string name)
+    {
+        string resolved = compiler;
+        try { resolved = File.ResolveLinkTarget(compiler, returnFinalTarget: true)?.FullName ?? compiler; } catch (IOException) { }
+        foreach (string candidate in new[] { resolved, compiler }.Distinct())
+        {
+            string path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(candidate)!, "..", "share", "libc++", "v1", name + ".cppm"));
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
 
     public override void SetupCPPEnvironment(CPPEnvironment environment)
     {
@@ -91,6 +114,7 @@ public abstract class UnixPlatform : Platform
             {
                 if (lower == ".mm") args.AddRange(["-x", "objective-c++", "-fobjc-arc"]);
                 args.Add(CppStandard(environment.CppVersion));
+                args.AddRange(CxxLibraryArguments);
                 args.Add(environment.EnableExceptions ? "-fexceptions" : "-fno-exceptions");
                 args.Add(environment.RuntimeTypeInfo ? "-frtti" : "-fno-rtti");
             }
@@ -175,6 +199,7 @@ public abstract class UnixPlatform : Platform
         args.AddRange(TargetArguments);
         args.Add("-o \"" + output + "\"");
         args.AddRange(PlatformLinkArguments(environment, output));
+        args.AddRange(CxxLibraryArguments);
         if (environment.Sanitizers != Sanitizer.None) args.Add("-fsanitize=" + SanitizerSupport.ClangList(environment.Sanitizers));
         if (environment.LinkTimeCodeGeneration) args.AddRange(LinkTimeOptimizationArguments());
         args.AddRange(environment.CustomArgs);

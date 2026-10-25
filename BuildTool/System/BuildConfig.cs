@@ -79,6 +79,8 @@ public sealed class LinuxBuildConfig
     [JsonPropertyName("linker")] public string Linker { get; set; } = "";
     /// <summary>Sysroot for cross compilation (another architecture or a non-Linux host; Clang).</summary>
     [JsonPropertyName("sysroot")] public string Sysroot { get; set; } = "";
+    /// <summary>"libc++" (Clang: -stdlib=libc++, needed for import std) or empty: the compiler default (libstdc++).</summary>
+    [JsonPropertyName("stdlib")] public string Stdlib { get; set; } = "";
 }
 
 /// <summary>Native macOS targets (Apple clang from Xcode or the Command Line Tools).</summary>

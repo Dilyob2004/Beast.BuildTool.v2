@@ -100,6 +100,8 @@ public sealed class LinuxPlatform : UnixPlatform
     }
 
     protected override IEnumerable<string> PlatformDefinitions => ["PLATFORM_LINUX"];
+    protected override bool UsesLibcxx => IsClang && BuildConfigManager.Config.Linux.Stdlib.Equals("libc++", StringComparison.OrdinalIgnoreCase);
+    protected override IEnumerable<string> CxxLibraryArguments => UsesLibcxx ? ["-stdlib=libc++"] : [];
 
     protected override IEnumerable<string> TargetArguments
     {

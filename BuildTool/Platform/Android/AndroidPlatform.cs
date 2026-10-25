@@ -25,6 +25,9 @@ public sealed class AndroidPlatform : Platform
     public string ToolchainRoot => _toolchainRoot;
     public override PlatformType Type => PlatformType.Android;
     public override string? ModuleInterfaceExtension => ".pcm";
+    /// <summary>The NDK's libc++ provides import std when it ships share/libc++/v1/std.cppm.</summary>
+    public override string? StandardModuleSource(string name) => UnixPlatform.LibcxxModuleSource(_clang, name);
+    public override string StandardModuleUnsupportedReason => "this NDK does not ship libc++'s std.cppm (share/libc++/v1)";
 
     private readonly string _toolchainRoot;
     private readonly string _clang;

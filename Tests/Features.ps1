@@ -166,6 +166,18 @@ Beast @('build', $project, '--target', 'ModDemo', '--config', 'Debug')
 Check ((Output (Join-Path $bin 'ModDemo.exe')) -eq '42') 'C++20 module program output'
 Write-Host 'PASS: C++20 modules (MSVC)'
 
+# import std (MSVC modules/std.ixx): a module exported by a static library uses std; the program
+# imports std and that module; std is built once, by the library target.
+Module 'StdText' ''
+Put 'Source/StdText/StdText.ixx' "export module StdText;`nimport std;`nexport std::string Greeting(std::string_view name) { return std::format(`"Hello, {}!`", name); }`n"
+Target 'StdTextLib' 'Type = TargetType.StaticLibrary; Modules.Add("StdText"); CppVersion = CppVersion.Latest;'
+Module 'StdMain' 'PrivateDependencies.Add("StdText");'
+Put 'Source/StdMain/Main.cpp' "import std;`nimport StdText;`nint main() { std::cout << Greeting(`"std`") << '\n'; }`n"
+Target 'StdDemo' 'Modules.Add("StdMain"); TargetDependencies.Add("StdTextLib"); CppVersion = CppVersion.Latest;'
+Beast @('build', $project, '--target', 'StdDemo', '--config', 'Debug')
+Check ((Output (Join-Path $bin 'StdDemo.exe')) -eq 'Hello, std!') 'import std program output'
+Write-Host 'PASS: import std (MSVC)'
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $vs = if (Test-Path $vswhere) { (& $vswhere -latest -products * -property installationPath | Select-Object -First 1) } else { $null }
 

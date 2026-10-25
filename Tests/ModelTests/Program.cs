@@ -273,6 +273,27 @@ Test("C++20 module scanning and graph", () =>
     Expect(() => CppModulePlan.Create(modsModel, app, arm64, TargetConfiguration.Debug).Apply(modsModel.Modules["App"], new CPPEnvironment(), [main]), "import std");
     Write(Path.Combine(mods, "Source", "Geo", "Twin.cppm"), "export module Geo;\n");
     Expect(() => CppModulePlan.Create(modsModel, app, arm64, TargetConfiguration.Debug), "declared twice");
+    File.Delete(Path.Combine(mods, "Source", "Geo", "Twin.cppm"));
+
+    // import std: the fake NDK ships share/libc++/v1/std.cppm; the deepest importing target builds it.
+    string libcxx = Path.Combine(Path.GetDirectoryName(bin)!, "share", "libc++", "v1");
+    Write(Path.Combine(libcxx, "std.cppm"), "export module std;\n");
+    Write(Path.Combine(libcxx, "std.compat.cppm"), "export module std.compat;\nexport import std;\n");
+    File.WriteAllText(Path.Combine(mods, "Source", "App", "App.Build.cs"), Module("App", "PrivateDependencies.Add(\"Geo\");"));
+    File.WriteAllText(main, "import std.compat;\nimport Geo;\nint main() { return Area(); }\n");
+    File.WriteAllText(Path.Combine(mods, "Source", "Geo", "Area.cpp"), "module Geo;\nimport std;\nint Area() { return 1; }\n");
+    modsModel = ProjectModel.Load(mods, arm64, TargetConfiguration.Debug);
+    app = modsModel.Targets.Single(t => t.Name == "App");
+    var stdEnv = new CPPEnvironment();
+    CppModulePlan.Create(modsModel, app, arm64, TargetConfiguration.Debug).Apply(modsModel.Modules["App"], stdEnv, [main]);
+    var stdRefs = stdEnv.ModuleUnits[main].References;
+    Check(stdRefs.Any(r => r.Name == "std.compat") && stdRefs.Any(r => r.Name == "std"), "std/std.compat references: " + string.Join(", ", stdRefs.Select(r => r.Name)));
+    Check(stdRefs.Single(r => r.Name == "std").Path.Contains(Path.Combine("Lib", "Modules")), "std BMI comes from the deepest importing target (Lib)");
+    Check(stdRefs.Single(r => r.Name == "std.compat").Path.Contains(Path.Combine("App", "Modules")), "std.compat is built by App, the only importer");
+    // Visual Studio: interfaces and internal partitions are marked for IntelliSense.
+    SolutionGenerator.Generate(mods, "Mods", arm64, x64, arm64);
+    string libProject = File.ReadAllText(Path.Combine(mods, "Lib.vcxproj"));
+    Check(libProject.Contains("<CompileAs>CompileAsCppModule</CompileAs>") && libProject.Contains("<CompileAs>CompileAsCppModuleInternalPartition</CompileAs>"), "IntelliSense CompileAs");
 });
 
 Test("CMake and pkg-config export", () =>

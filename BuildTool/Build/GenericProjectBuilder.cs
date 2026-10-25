@@ -110,6 +110,8 @@ public sealed class GenericProjectBuilder
             }
         }
         if (objectsByModule.Count == 0) throw new InvalidOperationException($"Target '{target.Name}' has no C/C++ sources.");
+        // import std: the standard library modules this target provides, linked like its own objects.
+        link.InputFiles.AddRange(modulePlan.CompileStandardModules(platform, executor, buildPath));
         // Dependents precede their dependencies for one-pass static archive resolution on Android.
         archives.Reverse();
         link.InputFiles.AddRange(archives);

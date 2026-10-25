@@ -247,6 +247,11 @@ public static class SolutionGenerator
             if (item.ItemType == "ClCompile")
             {
                 string file = Path.GetFullPath(Path.Combine(projectDir, item.IncludePath.Replace('\\', Path.DirectorySeparatorChar)));
+                // IntelliSense: module interface units and internal partitions are parsed as modules.
+                ModuleUnitInfo unit;
+                try { unit = CppModules.Scan(file); } catch (InvalidOperationException) { unit = ModuleUnitInfo.None; }
+                if (unit.ProducesInterface)
+                    element.Add(new XElement(ns + "CompileAs", unit.Exported ? "CompileAsCppModule" : "CompileAsCppModuleInternalPartition"));
                 foreach (var c in configurations)
                 {
                     var target = c.Model.SelectTarget(targetName);

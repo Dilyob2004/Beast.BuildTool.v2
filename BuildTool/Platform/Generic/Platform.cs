@@ -60,6 +60,9 @@ namespace Beast.BuildTool
         public virtual string? ModuleInterfaceExtension => null;
         /// <summary>Why C++20 modules are unavailable (when ModuleInterfaceExtension is null).</summary>
         public virtual string ModulesUnsupportedReason => $"the {PlatformName} toolchain does not support them";
+        /// <summary>Source of a standard library module ("std", "std.compat") shipped with the compiler, or null.</summary>
+        public virtual string? StandardModuleSource(string name) => null;
+        public virtual string StandardModuleUnsupportedReason => $"the {PlatformName} toolchain does not ship the standard library modules";
         /// <summary>The program file of an application target in <paramref name="binaries"/>.</summary>
         public virtual string ExecutablePath(string binaries, string target) => System.IO.Path.Combine(binaries, target + ExecutableFileExtension);
 
