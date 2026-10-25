@@ -355,3 +355,18 @@ jobs green from commit 582af0a.
   Windows x64, Linux x64, macOS arm64 and macOS x64.
 - Fixed: the iOS template quit before simctl relayed its output; it now quits one second after launch
   in automated runs. CI: macOS 10 groups, Linux 11 groups, Windows all steps.
+
+## Android emulator, Linux arm64, universal/.dmg, import std, docs — 2026-10-25
+
+CI run for commit a047d48: all four jobs green.
+
+- android (new job, x86_64 emulator with KVM): template APK installed and started, greeting in
+  logcat; native tests on the device (pass and fail).
+- linux: 13 groups, including Linux arm64 cross builds (Clang --target and aarch64-linux-gnu-g++, run
+  and test through qemu-aarch64) and `import std` (Clang + libc++, std built once by the library target).
+- windows: Features with `import std` on MSVC (modules/std.ixx).
+- macos: 11 groups, including universal binaries (both slices run, x86_64 through Rosetta) and the
+  disk image (mounted: app with embedded, signed libEngine.dylib, Applications link, valid signature).
+- Fixed on the way: lipo output and embedded dylibs are signed again (codesign rejected the bundle);
+  `simctl launch` reports a quickly exiting app as an error — treated as a normal exit.
+- Not verified: notarization (needs a Developer ID and a notary profile).
