@@ -322,3 +322,4 @@ if [[ "${1:-}" == --android ]]; then
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"
+[[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::notice title=Unix.sh::$passed groups passed; skipped: ${skipped[*]:-none}"
