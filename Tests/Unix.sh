@@ -302,7 +302,9 @@ if [[ $os == Mac ]] && xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>
     beast test "$project" --platform IOSSimulator --target CoreTests
     if "${tool[@]}" test "$project" --platform IOSSimulator --target FailingTests >"$work/ios-test.log" 2>&1; then echo 'FAIL: failing iOS test passed'; exit 1; fi
     "${tool[@]}" run "$project" --platform IOSSimulator --target Game --no-build >"$work/ios-run.log" 2>&1 || { cat "$work/ios-run.log"; annotate 'iOS run failed' "$work/ios-run.log"; exit 1; }
-    check 'grep -q "42 42 42 42" "$work/ios-run.log"' 'Game output in the simulator'
+    if ! grep -q "42 42 42 42" "$work/ios-run.log"; then
+        cat "$work/ios-run.log"; echo 'FAIL: Game output in the simulator'; annotate 'Game output in the simulator' "$work/ios-run.log"; exit 1
+    fi
     pass 'iOS Simulator (app bundle, embedded dylib, signing, test, run)'
 elif [[ $os == Mac ]]; then skipped+=('iOS Simulator (no Xcode iOS SDK or simulator)'); fi
 

@@ -245,7 +245,10 @@ public static class IosRunner
         string udid = await SimulatorAsync();
         var (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "install", udid, bundle]);
         if (exit != 0) throw new InvalidOperationException($"simctl install failed: {output}");
-        return await Installer.RunLocalAsync("/usr/bin/xcrun", Path.GetDirectoryName(bundle)!, ["simctl", "launch", "--console-pty", "--terminate-running-process", udid, identifier]);
+        // --console-pty for a terminal; with redirected output (CI, logs) --console relays the
+        // program's output through pipes, which does not lose it when the program exits quickly.
+        string console = Console.IsOutputRedirected ? "--console" : "--console-pty";
+        return await Installer.RunLocalAsync("/usr/bin/xcrun", Path.GetDirectoryName(bundle)!, ["simctl", "launch", console, "--terminate-running-process", udid, identifier]);
     }
 
     /// <summary>Runs a test executable inside the simulator (simctl spawn); returns its exit code.</summary>
