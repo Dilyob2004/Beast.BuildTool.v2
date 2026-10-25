@@ -60,10 +60,10 @@ public sealed class MacPlatform : UnixPlatform
         Log.TraceVerbose($"macOS toolchain: {Compiler}, SDK {SdkRoot}, minimum macOS {DeploymentTarget}");
     }
 
-    private static string Xcrun(params string[] arguments) => Xcrun("macosx", arguments);
+    private static string Xcrun(params string[] arguments) => XcrunSdk("macosx", arguments);
 
     /// <summary>Runs xcrun for an SDK (macosx, iphoneos, iphonesimulator) and returns its single output line.</summary>
-    internal static string Xcrun(string sdk, params string[] arguments)
+    internal static string XcrunSdk(string sdk, params string[] arguments)
     {
         var info = new ProcessStartInfo("xcrun") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         info.ArgumentList.Add("--sdk");

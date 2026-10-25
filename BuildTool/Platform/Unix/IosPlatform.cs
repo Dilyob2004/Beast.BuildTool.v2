@@ -40,12 +40,12 @@ public sealed class IosPlatform : UnixPlatform
             throw new ArgumentException("iOS devices are arm64. Use --platform IOSSimulator --arch x64 for an Intel simulator.");
         Simulator = simulator;
         var settings = BuildConfigManager.Config.Ios;
-        Compiler = string.IsNullOrWhiteSpace(settings.Cxx) ? MacPlatform.Xcrun(Sdk, "--find", "clang++")
+        Compiler = string.IsNullOrWhiteSpace(settings.Cxx) ? MacPlatform.XcrunSdk(Sdk, "--find", "clang++")
             : FindOnPath(Environment.ExpandEnvironmentVariables(settings.Cxx)) ?? throw new FileNotFoundException("ios.cxx was not found.", settings.Cxx);
         _appleClang = MacPlatform.IsAppleClang(Compiler);
-        Archiver = MacPlatform.Xcrun(Sdk, "--find", "libtool");
-        _dsymutil = MacPlatform.Xcrun(Sdk, "--find", "dsymutil");
-        SdkRoot = MacPlatform.Xcrun(Sdk, "--show-sdk-path");
+        Archiver = MacPlatform.XcrunSdk(Sdk, "--find", "libtool");
+        _dsymutil = MacPlatform.XcrunSdk(Sdk, "--find", "dsymutil");
+        SdkRoot = MacPlatform.XcrunSdk(Sdk, "--show-sdk-path");
         DeploymentTarget = string.IsNullOrWhiteSpace(settings.DeploymentTarget) ? "15.0" : settings.DeploymentTarget.Trim();
         Log.TraceVerbose($"iOS toolchain: {Compiler}, SDK {SdkRoot}, minimum iOS {DeploymentTarget}");
     }
