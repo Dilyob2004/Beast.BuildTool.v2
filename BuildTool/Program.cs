@@ -121,7 +121,11 @@ internal static class Program
         if (platform is IosPlatform ios)
         {
             string bundle = IosPlatform.BundlePath(Path.Combine(project, "Binaries", platform.PlatformName, configuration.ToString()), target);
-            int code = ios.Simulator ? await IosRunner.RunSimulatorAppAsync(bundle, IosPlatform.BundleIdentifier(target))
+            // A console program (ConsoleApplication, the default) runs in the simulator as a process
+            // (simctl spawn: its output and exit code come back); a UIKit app is launched as an app.
+            bool console = ProjectModel.Load(project, platform, configuration).Targets.Single(t => t.Name == target).Rules.ConsoleApplication;
+            int code = ios.Simulator && console ? await IosRunner.SpawnAsync(IosPlatform.BundleExecutable(Path.GetDirectoryName(bundle)!, target), [], 0)
+                : ios.Simulator ? await IosRunner.RunSimulatorAppAsync(bundle, IosPlatform.BundleIdentifier(target))
                 : await IosRunner.RunDeviceAppAsync(bundle, IosPlatform.BundleIdentifier(target), GetOptionalArgument(args, "device"));
             Log.TraceInfo($"{target} exited with code {code}.");
             return code;

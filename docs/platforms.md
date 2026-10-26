@@ -56,7 +56,12 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   `embedded.mobileprovision`, его entitlements передаются `codesign`. Без них сборка для устройства —
   ошибка с подсказкой.
 - `run --platform IOSSimulator` загружает симулятор (`ios.simulator` — имя или UDID, иначе запущенный
-  или первый iPhone), устанавливает и запускает приложение, показывая его вывод. `run --platform IOS
+  или первый iPhone), устанавливает и запускает приложение, показывая его вывод, и ждёт его завершения.
+  UIKit-приложение (`ConsoleApplication = false`, как в шаблоне `new`) запускается как приложение; если
+  оно упало, `run` завершается ошибкой с типом исключения и функциями из отчёта о сбое. Консольная
+  программа (`ConsoleApplication = true`, по умолчанию) выполняется в симуляторе как процесс
+  (`simctl spawn`), её код выхода возвращается. В проектах, созданных до этого изменения, для iOS
+  укажите `ConsoleApplication = info.Platform is not (PlatformType.Mac or PlatformType.IOS);`. `run --platform IOS
   --device <имя>` — установка и запуск на устройстве через `xcrun devicectl` (Xcode 15+).
 - `test --platform IOSSimulator`: тестовые цели — обычные исполняемые файлы, выполняются в симуляторе
   через `simctl spawn`, код выхода передаётся обратно.

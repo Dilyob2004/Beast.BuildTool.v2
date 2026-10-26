@@ -13,8 +13,9 @@ public static class HeaderGenerator
             {
                 Type = TargetType.Application;
                 Modules.Add("Launch");
-                // macOS: a windowed AppKit application (an .app bundle); a console program elsewhere.
-                ConsoleApplication = info.Platform != PlatformType.Mac;
+                // macOS: a windowed AppKit application (an .app bundle); iOS: a UIKit app launched like
+                // one (not spawned as a console program); a console program elsewhere.
+                ConsoleApplication = info.Platform is not (PlatformType.Mac or PlatformType.IOS);
             }
         }
         """;
