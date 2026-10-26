@@ -246,28 +246,89 @@ public static class IosRunner
         string udid = await SimulatorAsync();
         var (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "install", udid, bundle]);
         if (exit != 0) throw new InvalidOperationException($"simctl install failed: {output}");
-        // --console-pty for a terminal; with redirected output (CI, logs) --console relays the
-        // program's output through pipes, which does not lose it when the program exits quickly.
-        string console = Console.IsOutputRedirected ? "--console" : "--console-pty";
-        // simctl does not return the app's exit code; it fails ("has since exited or crashed") when the
-        // app ends before simctl finishes attaching, which is normal for a program that returns at once.
-        var info = new System.Diagnostics.ProcessStartInfo("/usr/bin/xcrun") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (string argument in new[] { "simctl", "launch", console, "--terminate-running-process", udid, identifier }) info.ArgumentList.Add(argument);
-        using var process = System.Diagnostics.Process.Start(info)!;
-        var errors = new System.Text.StringBuilder();
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) Console.WriteLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (errors) errors.AppendLine(e.Data); };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
-        string error = errors.ToString();
-        if (process.ExitCode != 0 && error.Contains("has since exited", StringComparison.Ordinal))
+        // The app's stdout/stderr go to files (simctl --stdout/--stderr), relayed here while it runs:
+        // unlike --console, nothing is lost when the program exits at once. Simulator apps are host
+        // processes, so the pid tells when it has ended; simctl does not report the exit code.
+        string logs = Path.Combine(Path.GetTempPath(), "beast-simctl-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(logs);
+        string stdout = Path.Combine(logs, "stdout.txt"), stderr = Path.Combine(logs, "stderr.txt");
+        File.WriteAllText(stdout, ""); File.WriteAllText(stderr, "");
+        var started = DateTime.Now;
+        (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "launch", "--terminate-running-process", "--stdout=" + stdout, "--stderr=" + stderr, udid, identifier]);
+        var match = System.Text.RegularExpressions.Regex.Match(output, @":\s*(\d+)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline);
+        if (exit != 0 || !match.Success) throw new InvalidOperationException($"simctl launch failed: {output}");
+        int pid = int.Parse(match.Groups[1].Value);
+        Log.TraceInfo($"{identifier} started in the simulator (pid {pid}); waiting for it to exit (quit the app or press Ctrl+C).");
+        long outRead = 0, errRead = 0;
+        void Relay()
         {
-            Log.TraceInfo($"{identifier} finished (simctl reports the early exit as an error).");
-            return 0;
+            outRead = Copy(stdout, outRead, Console.Out);
+            errRead = Copy(stderr, errRead, Console.Error);
         }
-        if (error.Length > 0) Console.Error.Write(error);
-        return process.ExitCode;
+        while (IsRunning(pid)) { Relay(); await Task.Delay(100); }
+        Relay();
+        try { Directory.Delete(logs, true); } catch (IOException) { }
+
+        // A crash (signal, UIKit assertion) leaves a report in ~/Library/Logs/DiagnosticReports.
+        string executable = Path.GetFileNameWithoutExtension(bundle);
+        string reports = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Logs", "DiagnosticReports");
+        for (int i = 0; i < 20; i++)
+        {
+            string? report = Directory.Exists(reports)
+                ? Directory.GetFiles(reports, executable + "-*.ips").FirstOrDefault(f => File.GetLastWriteTime(f) >= started.AddSeconds(-1))
+                : null;
+            if (report != null)
+            {
+                Log.TraceError($"{executable} crashed in the simulator: {CrashSummary(report)}\nReport: {report}");
+                return 1;
+            }
+            await Task.Delay(100);
+        }
+        return 0;
+    }
+
+    private static bool IsRunning(int pid)
+    {
+        try { using var process = Process.GetProcessById(pid); return !process.HasExited; }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
+
+    /// <summary>Writes the bytes appended to a file since 'offset'; returns the new offset.</summary>
+    private static long Copy(string path, long offset, TextWriter writer)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length <= offset) return offset;
+            stream.Seek(offset, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream);
+            writer.Write(reader.ReadToEnd());
+            writer.Flush();
+            return stream.Length;
+        }
+        catch (IOException) { return offset; }
+    }
+
+    /// <summary>Exception type and the first symbols of the crashing thread from an .ips report.</summary>
+    private static string CrashSummary(string report)
+    {
+        try
+        {
+            string text = File.ReadAllText(report);
+            int body = text.IndexOf('\n');
+            using var json = JsonDocument.Parse(text[(body + 1)..]);
+            var root = json.RootElement;
+            string type = root.TryGetProperty("exception", out var exception) && exception.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            var symbols = new List<string>();
+            if (root.TryGetProperty("threads", out var threads))
+                foreach (var thread in threads.EnumerateArray())
+                    if (thread.TryGetProperty("triggered", out var triggered) && triggered.GetBoolean() && thread.TryGetProperty("frames", out var frames))
+                        foreach (var frame in frames.EnumerateArray().Take(4))
+                            if (frame.TryGetProperty("symbol", out var symbol)) symbols.Add(symbol.GetString() ?? "");
+            return $"{type} in {string.Join(" <- ", symbols)}";
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException) { return "see the report"; }
     }
 
     /// <summary>Runs a test executable inside the simulator (simctl spawn); returns its exit code.</summary>
