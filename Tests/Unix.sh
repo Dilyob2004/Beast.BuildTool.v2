@@ -385,7 +385,11 @@ if [[ $os == Mac ]]; then
         beast build "$template" --platform IOSSimulator --config Debug
         SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 ||
             { cat "$work/template-ios.log"; annotate 'iOS template run failed' "$work/template-ios.log"; exit 1; }
-        grep -q "Hello from Template!" "$work/template-ios.log" || { cat "$work/template-ios.log"; annotate 'iOS template output' "$work/template-ios.log"; exit 1; }
+        if ! grep -q "Hello from Template!" "$work/template-ios.log"; then
+            # Diagnostics: the simulator's system log for the app process.
+            { echo '--- simulator log'; xcrun simctl spawn booted log show --style compact --last 3m --predicate 'process == "Template"' 2>&1 | grep -v "^Filtering" | tail -n 30; } >>"$work/template-ios.log"
+            cat "$work/template-ios.log"; annotate 'iOS template output' "$work/template-ios.log"; exit 1
+        fi
     fi
 fi
 pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"
