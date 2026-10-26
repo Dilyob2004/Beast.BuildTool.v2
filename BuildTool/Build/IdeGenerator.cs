@@ -347,7 +347,7 @@ public static class VsCodeGenerator
         JsonObject MakeTask(string label, string arguments, bool defaultBuild = false)
         {
             var args = new JsonArray(tool.Skip(1).Select(a => (JsonNode)a).ToArray());
-            foreach (string a in arguments.Split(' ')) args.Add(a);
+            foreach (string a in arguments.Split(' ')) args.Add(JsonValue.Create(a)); // not Add<T>: reflection serialization is off
             var task = new JsonObject
             {
                 ["label"] = label, ["type"] = "process", ["command"] = tool[0], ["args"] = args,
