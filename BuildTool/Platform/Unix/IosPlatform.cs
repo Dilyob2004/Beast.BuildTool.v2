@@ -246,28 +246,26 @@ public static class IosRunner
         string udid = await SimulatorAsync();
         var (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "install", udid, bundle]);
         if (exit != 0) throw new InvalidOperationException($"simctl install failed: {output}");
-        // The app's stdout/stderr go to files (simctl --stdout/--stderr), relayed here while it runs:
-        // unlike --console, nothing is lost when the program exits at once. Simulator apps are host
-        // processes, so the pid tells when it has ended; simctl does not report the exit code.
-        string logs = Path.Combine(Path.GetTempPath(), "beast-simctl-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(logs);
-        string stdout = Path.Combine(logs, "stdout.txt"), stderr = Path.Combine(logs, "stderr.txt");
-        File.WriteAllText(stdout, ""); File.WriteAllText(stderr, "");
+        // --console-pty for a terminal; with redirected output (CI, logs) --console relays the app's
+        // output through pipes. simctl stays attached until the app exits, but does not report the exit
+        // code; it fails ("has since exited or crashed") when the app ends before it attaches.
+        string console = Console.IsOutputRedirected ? "--console" : "--console-pty";
         var started = DateTime.Now;
-        (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "launch", "--terminate-running-process", "--stdout=" + stdout, "--stderr=" + stderr, udid, identifier]);
-        var match = System.Text.RegularExpressions.Regex.Match(output, @":\s*(\d+)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline);
-        if (exit != 0 || !match.Success) throw new InvalidOperationException($"simctl launch failed: {output}");
-        int pid = int.Parse(match.Groups[1].Value);
-        Log.TraceInfo($"{identifier} started in the simulator (pid {pid}); waiting for it to exit (quit the app or press Ctrl+C).");
-        long outRead = 0, errRead = 0;
-        void Relay()
+        var info = new ProcessStartInfo("/usr/bin/xcrun") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string argument in new[] { "simctl", "launch", console, "--terminate-running-process", udid, identifier }) info.ArgumentList.Add(argument);
+        using (var process = Process.Start(info)!)
         {
-            outRead = Copy(stdout, outRead, Console.Out);
-            errRead = Copy(stderr, errRead, Console.Error);
+            var errors = new System.Text.StringBuilder();
+            process.OutputDataReceived += (_, e) => { if (e.Data != null) Console.WriteLine(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (errors) errors.AppendLine(e.Data); };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
+            string error = errors.ToString();
+            bool earlyExit = process.ExitCode != 0 && error.Contains("has since exited", StringComparison.Ordinal);
+            if (!earlyExit && error.Length > 0) Console.Error.Write(error);
+            if (process.ExitCode != 0 && !earlyExit) return process.ExitCode;
         }
-        while (IsRunning(pid)) { Relay(); await Task.Delay(100); }
-        Relay();
-        try { Directory.Delete(logs, true); } catch (IOException) { }
 
         // A crash (signal, UIKit assertion) leaves a report in ~/Library/Logs/DiagnosticReports.
         string executable = Path.GetFileNameWithoutExtension(bundle);
@@ -285,29 +283,6 @@ public static class IosRunner
             await Task.Delay(100);
         }
         return 0;
-    }
-
-    private static bool IsRunning(int pid)
-    {
-        try { using var process = Process.GetProcessById(pid); return !process.HasExited; }
-        catch (ArgumentException) { return false; }
-        catch (InvalidOperationException) { return false; }
-    }
-
-    /// <summary>Writes the bytes appended to a file since 'offset'; returns the new offset.</summary>
-    private static long Copy(string path, long offset, TextWriter writer)
-    {
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length <= offset) return offset;
-            stream.Seek(offset, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream);
-            writer.Write(reader.ReadToEnd());
-            writer.Flush();
-            return stream.Length;
-        }
-        catch (IOException) { return offset; }
     }
 
     /// <summary>Exception type and the first symbols of the crashing thread from an .ips report.</summary>
