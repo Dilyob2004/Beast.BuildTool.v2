@@ -390,6 +390,28 @@ if [[ $os == Mac ]]; then
 fi
 pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"
 
+# IDE files: 'new'/'generate' write .vscode on every host and, on macOS, an Xcode project whose
+# targets build through Beast (xcodebuild runs here exactly as Product > Build in Xcode).
+beast generate "$template"
+check 'python3 -c "import json,sys; [json.load(open(f)) for f in sys.argv[1:]]" "$template/.vscode/tasks.json" "$template/.vscode/launch.json" "$template/.vscode/settings.json"' '.vscode files'
+check 'grep -q "Template (Debug)" "$template/.vscode/launch.json"' 'VS Code launch configuration'
+if [[ $os == Mac ]]; then
+    xcodeproj="$template/Template.xcodeproj"
+    check 'plutil -lint "$xcodeproj/project.pbxproj" >/dev/null' 'project.pbxproj is not a valid plist'
+    xcodebuild -project "$xcodeproj" -list >"$work/xcode-list.log" 2>&1 || { cat "$work/xcode-list.log"; annotate 'xcodebuild -list failed' "$work/xcode-list.log"; exit 1; }
+    check 'grep -q "Template" "$work/xcode-list.log"' 'Xcode scheme missing'
+    [[ -n "${sim:-}" ]] && check 'grep -q "Template iOS Simulator" "$work/xcode-list.log"' 'iOS Simulator scheme missing'
+    rm -rf "$template/Binaries/$platform/Release"
+    xcodebuild -project "$xcodeproj" -scheme Template -configuration Release build >"$work/xcode-build.log" 2>&1 ||
+        { cat "$work/xcode-build.log"; annotate 'xcodebuild build failed' "$work/xcode-build.log"; exit 1; }
+    check '[[ -x "$template/Binaries/$platform/Release/Template.app/Contents/MacOS/Template" ]]' 'xcodebuild did not build Template.app'
+    xcodebuild -project "$xcodeproj" -scheme Template -configuration Release clean >"$work/xcode-clean.log" 2>&1 ||
+        { cat "$work/xcode-clean.log"; annotate 'xcodebuild clean failed' "$work/xcode-clean.log"; exit 1; }
+    pass 'IDE files (.vscode; Xcode project built with xcodebuild)'
+else
+    pass 'IDE files (.vscode)'
+fi
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"

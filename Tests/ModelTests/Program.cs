@@ -187,6 +187,38 @@ Test("Visual Studio generation", () =>
     Check(engine.Contains(@"Source\Core\Android\CoreAndroid.cpp") && engine.Contains(@"Source\Render\Render.cpp"), "Engine sources");
 });
 
+Test("Xcode and VS Code generation", () =>
+{
+    // The Android platform stands in for macOS: generation only lists targets and paths.
+    string xcode = XcodeGenerator.Generate(project, "Demo", arm64, iosSimulator: true);
+    string pbx = File.ReadAllText(Path.Combine(xcode, "project.pbxproj"));
+    Check(pbx.StartsWith("// !$*UTF8*$!") && pbx.Count(c => c == '{') == pbx.Count(c => c == '}') && pbx.Count(c => c == '(') == pbx.Count(c => c == ')'), "pbxproj structure");
+    foreach (string name in new[] { "name = Game;", "name = Engine;", "name = Tools;", "name = \"Game iOS Simulator\";", "isa = PBXLegacyTarget", "path = Main.cpp;", "path = BuildConfig.json;" })
+        Check(pbx.Contains(name), name + " missing from project.pbxproj");
+    Check(!pbx.Contains("GameTests iOS Simulator") && !pbx.Contains("Engine iOS Simulator"), "iOS Simulator targets are for applications only");
+    Check(pbx.Contains("$(CONFIGURATION) Mac") && pbx.Contains("Game $(CONFIGURATION) IOSSimulator"), "build arguments");
+    string schemes = Path.Combine(xcode, "xcshareddata", "xcschemes");
+    var game = System.Xml.Linq.XDocument.Load(Path.Combine(schemes, "Game.xcscheme"));
+    string runnable = (string)game.Descendants("PathRunnable").Single().Attribute("FilePath")!;
+    Check(runnable == Path.Combine(project, "Binaries", arm64.PlatformName, "Debug", "Game" + arm64.ExecutableFileExtension), "Run path: " + runnable);
+    Check(!System.Xml.Linq.XDocument.Load(Path.Combine(schemes, "Engine.xcscheme")).Descendants("PathRunnable").Any(), "Library scheme runs nothing");
+    Check(File.ReadAllText(Path.Combine(schemes, "Game iOS Simulator.xcscheme")).Contains("IOSSimulator"), "iOS Simulator scheme");
+    string script = File.ReadAllText(Path.Combine(xcode, "beast-xcode.sh"));
+    Check(script.StartsWith("#!/bin/sh\n") && script.Contains(" build \"$project\"") && script.Contains(" clean \"$project\"") && !script.Contains('\r'), "build script");
+
+    string vscode = Path.Combine(project, ".vscode");
+    if (Directory.Exists(vscode)) Directory.Delete(vscode, true);
+    var written = VsCodeGenerator.Generate(project, arm64);
+    Check(written.Count == 3, "VS Code files: " + written.Count);
+    var tasks = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(vscode, "tasks.json")))!;
+    Check(tasks["tasks"]!.AsArray().Any(t => (string?)t!["label"] == "beast: build Debug" && t["group"] != null), "default build task");
+    var launch = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(vscode, "launch.json")))!["configurations"]!.AsArray();
+    Check(launch.Any(l => (string?)l!["name"] == "Game (Debug)" && ((string)l["program"]!).EndsWith("/Debug/Game" + arm64.ExecutableFileExtension)), "Game launch");
+    Check(launch.All(l => !((string)l!["name"]!).StartsWith("Engine")), "libraries are not launched");
+    File.WriteAllText(Path.Combine(vscode, "tasks.json"), "{}");
+    Check(VsCodeGenerator.Generate(project, arm64).Count == 0 && File.ReadAllText(Path.Combine(vscode, "tasks.json")) == "{}", "existing VS Code files are kept");
+});
+
 Test("platform source rules (Linux, macOS)", () =>
 {
     Check(SourceFilter.IsOtherPlatform("Private/Linux/X.cpp", PlatformType.Mac) && !SourceFilter.IsOtherPlatform("Private/Linux/X.cpp", PlatformType.Linux), "Linux directory");

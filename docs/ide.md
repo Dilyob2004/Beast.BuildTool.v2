@@ -1,6 +1,9 @@
 # IDE и редакторы
 
-Visual Studio, VS Code, CLion и clangd.
+Visual Studio, Xcode, VS Code, CLion и clangd.
+
+`beast generate [проект]` создаёт файлы IDE для текущей системы: решение Visual Studio (Windows),
+проект Xcode (macOS) и папку `.vscode` (везде). `beast new` и `beast module` делают это сами.
 
 ## Visual Studio
 
@@ -13,6 +16,24 @@ Android-приложения выполняет `run --no-build --wait` (уст�
 IntelliSense модулей C++20: интерфейсы помечены `CompileAsCppModule`, внутренние разделы —
 `CompileAsCppModuleInternalPartition` (см. [Модули C++20](cpp-modules.md)).
 
+## Xcode (macOS)
+
+`generate` создаёт `<Проект>.xcodeproj` рядом с `Source`. Откройте его в Xcode:
+
+- для каждой цели Beast есть цель и схема Xcode с тем же именем; **Product → Build (⌘B)** вызывает
+  `beast build --target <цель> --config <конфигурация>`, ошибки компилятора кликабельны;
+- **Product → Run (⌘R)** у приложения запускает `Binaries/Mac/Debug/...` под отладчиком LLDB
+  (точки останова, просмотр переменных). Схема запускает Debug-сборку;
+- для каждого приложения есть ещё цель **«<Имя> iOS Simulator»**: Build собирает его для симулятора,
+  Run устанавливает и запускает в симуляторе (вывод программы — в консоли Xcode). Появляется, если
+  установлен iOS SDK;
+- **Product → Clean** вызывает `beast clean --target <цель>`;
+- Debug, Development и Release — конфигурации Xcode (Product → Scheme → Edit Scheme).
+
+Файлы `Source/` видны в навигаторе и редактируются как обычно; компилирует их Beast, а не Xcode, поэтому
+настройки сборки (Build Settings) Xcode на сборку не влияют — всё задаётся в `*.Build.cs`/`*.Target.cs`.
+После добавления модулей или файлов снова выполните `generate` (Xcode подхватит изменения сам).
+
 ## VS Code, CLion, clangd
 
 После каждой сборки в корне проекта обновляется `compile_commands.json` — точные команды компилятора
@@ -21,12 +42,15 @@ clangd (расширение VS Code `clangd`), CLion и clang-tidy читают
 укажите `"C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json"`. Отключение:
 `"generateCompileCommands": false` в `Config/BuildConfig.json`.
 
-Сборку из VS Code удобно вызывать задачей (`.vscode/tasks.json`):
+`generate` создаёт в `.vscode` (только отсутствующие файлы — ваши правки не перезаписываются):
 
-```json
-{ "version": "2.0.0", "tasks": [ { "label": "beast build", "type": "shell",
-  "command": "beast build ${workspaceFolder} --config Debug", "group": "build", "problemMatcher": "$gcc" } ] }
-```
+- `tasks.json` — задачи `beast: build Debug` (сборка по умолчанию, **Ctrl/⌘+Shift+B**), `build Release`,
+  `run`, `test`, `clean`, `generate`; ошибки компилятора попадают в панель Problems;
+- `launch.json` — отладка каждого приложения (**F5**) с предварительной сборкой Debug: Windows —
+  отладчик Visual Studio (расширение C/C++), Linux — gdb (C/C++), macOS — расширение CodeLLDB;
+- `settings.json` — путь к `compile_commands.json` для C/C++ и clangd.
+
+Чтобы пересоздать файл, удалите его и выполните `generate`.
 
 ---
 [Оглавление](index.md)

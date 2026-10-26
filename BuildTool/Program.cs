@@ -67,8 +67,7 @@ internal static class Program
             !File.Exists(Path.Combine(project, "Config", "BuildConfig.json")))
             return Usage("Beast project not found. Run this command in the project root (beside its .sln and Source), or supply a project path.");
         if (!ProjectGenerator.CreateModule(project, name)) return 1;
-        if (SolutionGenerator.TryGenerate(project, new DirectoryInfo(project).Name))
-            Log.TraceInfo("Visual Studio project and file filters updated.");
+        IdeGenerator.TryGenerate(project);
         return 0;
     }
 
@@ -85,9 +84,8 @@ internal static class Program
     {
         string? project = ResolveProject(args, 1);
         if (project == null) return Usage("Project path is required.");
-        string name = new DirectoryInfo(project).Name;
-        SolutionGenerator.Generate(project, name);
-        Log.TraceInfo($"Generated {Path.Combine(project, name + ".sln")}");
+        foreach (string file in IdeGenerator.Generate(project)) Log.TraceInfo("Generated " + file);
+        Log.TraceInfo("compile_commands.json (clangd, CLion, VS Code) is written by 'build'.");
         return 0;
     }
 
@@ -255,7 +253,7 @@ Beast BuildTool
   beast worker --queue <shared-directory> --project-root <allowed-directory> --compiler-root <allowed-directory> [--key-env BEAST_WORKER_KEY] [--once] [--idle-timeout <seconds>] [--reserve-mb <MB>]
   beast new <Name> [--path <directory>]
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
-  beast generate [project-path]
+  beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
   beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait]
   beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait]

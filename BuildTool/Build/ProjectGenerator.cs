@@ -36,7 +36,7 @@ public static class ProjectGenerator
             BuildConfigManager.CreateDefault(projectDir);
             AndroidTemplateGenerator.Create(projectDir, projectName);
             WindowsTemplateGenerator.Ensure(projectDir, projectName);
-            SolutionGenerator.TryGenerate(projectDir, projectName);
+            IdeGenerator.TryGenerate(projectDir);
 
             Log.TraceInfo($"Created project '{projectName}' at '{projectDir}'.");
             return true;

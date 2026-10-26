@@ -23,8 +23,8 @@
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
 - **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
   продолжение после ошибок, общий кеш и worker.
-- **IDE**: `.sln`/`.vcxproj` с IntelliSense и обычным отладчиком Visual Studio; `compile_commands.json`
-  для clangd, VS Code и CLion.
+- **IDE**: `.sln`/`.vcxproj` с IntelliSense и отладчиком Visual Studio; проект Xcode (сборка, запуск
+  под LLDB, iOS Simulator); `.vscode` (задачи, F5); `compile_commands.json` для clangd и CLion.
 - **Хосты**: Windows, Linux, macOS; готовые сборки Beast без установки .NET.
 
 ## Разделы

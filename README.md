@@ -2,7 +2,7 @@
 
 Самостоятельная система сборки C/C++ с правилами на C#. Собирает программы и библиотеки для
 Windows, Linux, macOS, iOS и Android, сама исполняет граф сборки (без CMake, Ninja и Make) и
-генерирует решения Visual Studio и `compile_commands.json`.
+генерирует решения Visual Studio, проекты Xcode, настройки VS Code и `compile_commands.json`.
 
 [![Beast BuildTool](https://github.com/Dilyob2004/Beast.BuildTool.v2/actions/workflows/beast.yml/badge.svg)](https://github.com/Dilyob2004/Beast.BuildTool.v2/actions/workflows/beast.yml)
 
@@ -29,8 +29,8 @@ Windows, Linux, macOS, iOS и Android, сама исполняет граф сб
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
 - **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
   продолжение после ошибок, общий кеш и worker.
-- **IDE**: `.sln`/`.vcxproj` с IntelliSense и обычным отладчиком Visual Studio; `compile_commands.json`
-  для clangd, VS Code и CLion.
+- **IDE**: `.sln`/`.vcxproj` с IntelliSense и отладчиком Visual Studio; проект Xcode (сборка, запуск
+  под LLDB, iOS Simulator); `.vscode` (задачи, F5); `compile_commands.json` для clangd и CLion.
 - **Хосты**: Windows, Linux, macOS; готовые сборки Beast без установки .NET.
 
 ## Быстрый старт
@@ -83,7 +83,7 @@ public sealed class GameTarget : TargetRules
 | [Генерация кода и runtime-файлы](docs/build-steps.md) | шаги сборки, файлы рядом с программой и внутри APK |
 | [Тесты, установка и пакеты](docs/packaging.md) | `test`, `install`, `package`, CMake и pkg-config |
 | [vcpkg и Conan](docs/packages.md) | зависимости из пакетных менеджеров |
-| [IDE и редакторы](docs/ide.md) | Visual Studio, VS Code, CLion, clangd |
+| [IDE и редакторы](docs/ide.md) | Visual Studio, Xcode, VS Code, CLion, clangd |
 | [Ускорение сборки](docs/acceleration.md) | кеш, общий кеш, worker |
 | [Проверки и CI](docs/testing.md) | тесты Beast, GitHub Actions, выпуск версий |
 
