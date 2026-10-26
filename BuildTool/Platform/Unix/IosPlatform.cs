@@ -117,6 +117,7 @@ public sealed class IosPlatform : UnixPlatform
               <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
               <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
               <key>UILaunchScreen</key><dict/>
+              <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
               <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
             </dict>
             </plist>

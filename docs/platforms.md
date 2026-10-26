@@ -62,7 +62,11 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   через `simctl spawn`, код выхода передаётся обратно.
 - `install`/`package` копируют `<Target>.app`, а для устройства пишут ещё и `<Target>.ipa` (`Payload/`).
 - Шаблон `new` для iOS — UIKit-приложение `IOS/LaunchIOS.mm` (экран с надписью); свой интерфейс
-  пишется в `.mm`-файлах модуля. Модули C++20 — как на macOS: Apple clang их не умеет,
+  пишется в `.mm`-файлах модуля. Используется жизненный цикл сцен (UIScene): с iOS 27 UIKit
+  останавливает приложения, создающие окно в `application:didFinishLaunchingWithOptions:`. Info.plist
+  объявляет `UIApplicationSceneManifest`, делегат приложения возвращает класс делегата сцены в
+  `application:configurationForConnectingSceneSession:options:`, окно создаётся в
+  `scene:willConnectToSession:options:`. Модули C++20 — как на macOS: Apple clang их не умеет,
   `ios.cxx` задаёт другой Clang.
 
 ## Linux
