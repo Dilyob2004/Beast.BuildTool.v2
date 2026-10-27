@@ -93,6 +93,7 @@ public sealed class GenericProjectBuilder
         {
             var sources = model.Sources(module);
             sources.AddRange(steps.GeneratedSources(module));
+            sources.AddRange(steps.AdditionalSources(module).Where(f => !sources.Contains(f, StringComparer.OrdinalIgnoreCase)));
             if (sources.Count == 0) continue;
             var cpp = model.CompileEnvironment(target, module, platform, configuration);
             steps.ConfigureCompilation(model, module, cpp);

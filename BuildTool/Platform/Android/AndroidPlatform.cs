@@ -33,6 +33,8 @@ public sealed class AndroidPlatform : Platform
     private readonly string _clang;
     private readonly int _apiLevel;
     public string NdkRoot { get; }
+    /// <summary>API level of the --target triple (android.minSdk).</summary>
+    public int ApiLevel => _apiLevel;
     public string Tool(string name) => Path.Combine(_toolchainRoot, "bin", HostPlatform.Executable(name));
 
     public static string NormalizeAbi(string value) => value.ToLowerInvariant() switch

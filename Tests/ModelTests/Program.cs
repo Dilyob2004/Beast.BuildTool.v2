@@ -253,6 +253,23 @@ Test("Android Java source destinations", () =>
     Check(AndroidPackagePlan.JavaPath(Path.Combine(java, "C.kt")) == "com/beast/k/C.kt", "Kotlin package without ';'");
 });
 
+Test("toolchain paths in ModulesInfo, AdditionalSources", () =>
+{
+    string project = Path.Combine(root, "Toolchain");
+    Write(Path.Combine(ndk, "sources", "glue.c"), "");
+    Write(Path.Combine(project, "Source", "Glue", "Glue.Build.cs"), Module("Glue",
+        "Definitions.Add(\"ABI=\" + info.AndroidAbi); Definitions.Add(\"API=\" + info.AndroidApiLevel); " +
+        "if (info.AndroidNdkRoot != null) AdditionalSources.Add(System.IO.Path.Combine(info.AndroidNdkRoot, \"sources\", \"glue.c\"));"));
+    Write(Path.Combine(project, "Source", "Glue.Target.cs"), Target("Glue", "Type = TargetType.StaticLibrary; Modules.Add(\"Glue\");"));
+    var model = ProjectModel.Load(project, x64, TargetConfiguration.Debug, []);
+    var glue = model.Modules["Glue"];
+    Check(glue.Definitions.Contains("ABI=x86_64") && glue.Definitions.Contains("API=" + BuildConfigManager.Config.Android.MinSdk), "Android ABI and API level");
+    var plan = new BuildStepPlan(project, Path.Combine(project, "Intermediate"), Path.Combine(project, "Binaries"), "P", "Debug", "Glue", []);
+    Check(plan.AdditionalSources(glue).SequenceEqual(new[] { Path.Combine(ndk, "sources", "glue.c") }), "AdditionalSources from the NDK");
+    glue.AdditionalSources.Add("Missing.c");
+    Expect(() => plan.AdditionalSources(glue), "not found");
+});
+
 Test("Xcode and VS Code generation", () =>
 {
     // The Android platform stands in for macOS: generation only lists targets and paths.

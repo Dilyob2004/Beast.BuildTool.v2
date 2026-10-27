@@ -7,5 +7,6 @@ public sealed class SDKTarget : TargetRules
     {
         Type = TargetType.StaticLibrary;
         Modules.Add("Widgets");
+        if (info.Platform == PlatformType.Android) Modules.Add("AndroidGlue");
     }
 }

@@ -101,6 +101,44 @@ LinkerArguments.Add("...");                     // добавляется в к�
 `Config/BuildConfig.json`: `"windows": { "sdkVersion": "10.0.26100.0" }`; без неё
 берётся новейшая установленная.
 
+### Сведения о платформе и исходники вне модуля
+
+В правилах доступны свойства `info` (`ModulesInfo`):
+
+| Свойство | Значение |
+|---|---|
+| `Platform`, `Architecture`, `Configuration` | платформа, архитектура, конфигурация сборки |
+| `ProjectDirectory`, `ProjectSourceDirectory` | корень проекта, чьи правила вычисляются (у внешнего проекта — его корень) |
+| `BuildProjectDirectory`, `ExternalProjectName` | собираемое приложение; имя внешнего проекта (или `null`) |
+| `AndroidNdkRoot` | каталог используемого NDK (с версией); `null` вне Android |
+| `AndroidSdkRoot` | Android SDK (`android.sdkRoot` или `ANDROID_HOME`), если существует; `null` вне Android |
+| `AndroidApiLevel`, `AndroidAbi` | API level цели компилятора (`android.minSdk`) и ABI; `null` вне Android |
+
+`AdditionalSources` компилирует файлы вне каталога модуля как часть модуля (абсолютный путь,
+относительно модуля или с подстановками `{ProjectDir}`/`{ModuleDir}`…); файл должен существовать.
+
+Определения задаются для модуля целиком. Если определение нужно только одному файлу, вынесите файл в
+отдельный модуль со своими `Definitions` — например, `android_native_app_glue.c` из NDK:
+
+```csharp
+// Source/AndroidGlue/AndroidGlue.Build.cs — модуль без собственных исходников
+public sealed class AndroidGlue : ModuleRules
+{
+    public AndroidGlue(ModulesInfo info)
+    {
+        if (info.AndroidNdkRoot == null) return;   // не Android
+        string glue = Path.Combine(info.AndroidNdkRoot, "sources", "android", "native_app_glue");
+        PublicIncludePaths.Add(glue);
+        AdditionalSources.Add(Path.Combine(glue, "android_native_app_glue.c"));
+        Definitions.Add("ANativeActivity_onCreate=BeastNativeActivityOnCreate");  // только для этого файла
+        InputLibraries.Add("android");
+        InputLibraries.Add("log");
+    }
+}
+// в *.Target.cs: if (info.Platform == PlatformType.Android) Modules.Add("AndroidGlue");
+// или PrivateDependencies.Add("AndroidGlue") в модуле, который его использует
+```
+
 ### Конфигурации
 
 | | Debug | Development | Release |

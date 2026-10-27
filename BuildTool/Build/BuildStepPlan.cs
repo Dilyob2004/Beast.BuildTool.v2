@@ -28,6 +28,20 @@ public sealed class BuildStepPlan
     }
     private string Source(ModuleRules module, string path) => Path.GetFullPath(Expand(module, path), module.ModuleDirectory);
 
+    /// <summary>AdditionalSources of a module: expanded, absolute, existing compilable files.</summary>
+    public List<string> AdditionalSources(ModuleRules module)
+    {
+        var result = new List<string>();
+        foreach (string item in module.AdditionalSources)
+        {
+            string path = Source(module, item);
+            if (!File.Exists(path)) throw new FileNotFoundException($"{module.ModuleName}: AdditionalSources file not found: {item}", path);
+            if (!SourceFilter.IsCompilable(path)) throw new InvalidOperationException($"{module.ModuleName}: AdditionalSources must be C/C++/assembly sources: {path}");
+            if (!result.Contains(path, StringComparer.OrdinalIgnoreCase)) result.Add(path);
+        }
+        return result;
+    }
+
     public static void ValidateOutput(string root, string path)
     {
         root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
