@@ -260,7 +260,7 @@ foreach ($job in $jobs) {
 foreach ($app in 'AppA', 'AppB') {
     $output = Output (Join-Path $ext "$app/Binaries/Windows/Debug/$app.exe")
     Check ($output -eq "$app 42 1 1 resource") "$app output: $output"
-    Check (Test-Path (Join-Path $ext "$app/Intermediate/Build/Windows/Debug/External/SDK/SDK")) "$app: SDK not built under External/SDK"
+    Check (Test-Path (Join-Path $ext "$app/Intermediate/Build/Windows/Debug/External/SDK/SDK")) "${app}: SDK not built under External/SDK"
 }
 Check (-not (Test-Path (Join-Path $ext 'SDK/Intermediate')) -and -not (Test-Path (Join-Path $ext 'SDK/Binaries'))) 'build files were written into the external project'
 $header = Join-Path $ext 'SDK/Source/Core/Public/SdkCore.h'
