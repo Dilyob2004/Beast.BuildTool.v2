@@ -264,7 +264,8 @@ if [[ $os == Mac ]]; then
     check '[[ "$(arch -x86_64 "$uni/Viewer.app/Contents/MacOS/Viewer")" == "viewer 42" ]]' 'x86_64 slice does not run (Rosetta)'
     beast package "$project" --target Viewer,Engine --arch universal --dmg
     dmg="$project/Binaries/Packages/Demo-MacUniversal-Release.dmg"
-    check '[[ -f "$dmg" ]] && hdiutil verify "$dmg" >/dev/null 2>&1' 'disk image missing or invalid'
+    # hdiutil verify sometimes fails transiently on CI runners (resource busy): up to three tries.
+    check '[[ -f "$dmg" ]] && { hdiutil verify "$dmg" >/dev/null 2>&1 || { sleep 3; hdiutil verify "$dmg" >/dev/null 2>&1; } || { sleep 5; hdiutil verify "$dmg" >"$work/last.log" 2>&1; }; }' 'disk image missing or invalid'
     mount="$work/dmg"; mkdir -p "$mount"
     hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
     ok=1

@@ -22,7 +22,11 @@ function Beast([string[]]$Arguments) {
 }
 # In GitHub Actions the failure is also reported as an annotation (readable without the job log).
 trap {
-    if ($env:GITHUB_ACTIONS) { Write-Host ("::error title=Features.ps1::" + ("$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)" -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A')) }
+    if ($env:GITHUB_ACTIONS) {
+        $text = "$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)"
+        if ($text.Length -gt 4000) { $text = $text.Substring(0, 4000) + '...' }
+        Write-Host ("::error title=Features.ps1::" + ($text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'))
+    }
     break
 }
 function Check([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
@@ -239,11 +243,18 @@ Write-Host 'PASS: resources (next to the EXE, dependency target, non-ASCII name)
 $ext = Join-Path $testRoot 'External'
 Copy-Item -Recurse (Join-Path $PSScriptRoot 'Fixtures/External') $ext
 $jobs = foreach ($app in 'AppA', 'AppB') {
-    Start-Process -FilePath $tool -ArgumentList @('build', "`"$(Join-Path $ext $app)`"", '--config', 'Debug') -NoNewWindow -PassThru `
+    $process = Start-Process -FilePath $tool -ArgumentList @('build', "`"$(Join-Path $ext $app)`"", '--config', 'Debug') -NoNewWindow -PassThru `
         -RedirectStandardOutput (Join-Path $testRoot "$app.log") -RedirectStandardError (Join-Path $testRoot "$app.err")
+    $null = $process.Handle   # keeps the handle, so ExitCode is available after the process ends
+    [pscustomobject]@{ App = $app; Process = $process }
 }
-$jobs | Wait-Process
-foreach ($job in $jobs) { Check ($job.ExitCode -eq 0) "external project build failed: $(Get-Content (Join-Path $testRoot 'AppA.log') -Raw) $(Get-Content (Join-Path $testRoot 'AppB.log') -Raw)" }
+foreach ($job in $jobs) {
+    $job.Process.WaitForExit()
+    if ($job.Process.ExitCode -ne 0) {
+        $tail = (Get-Content (Join-Path $testRoot "$($job.App).log") | Where-Object { $_ -notmatch ' Verbose ' } | Select-Object -Last 30) -join "`n"
+        throw "external project: $($job.App) build failed (exit $($job.Process.ExitCode))`n$tail"
+    }
+}
 foreach ($app in 'AppA', 'AppB') {
     $output = Output (Join-Path $ext "$app/Binaries/Windows/Debug/$app.exe")
     Check ($output -eq "$app 42 1 1 resource") "$app output: $output"
