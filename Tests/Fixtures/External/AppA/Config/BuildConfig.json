@@ -1,0 +1,5 @@
+{
+  "externalProjects": [
+    { "name": "SDK", "path": "../SDK" }
+  ]
+}

@@ -196,7 +196,8 @@ include-путей и определений. `build --target HelloApp` снач
 библиотеку зависимости и внешние библиотеки её модулей передаются потребителю;
 разделяемая библиотека содержит свои зависимости сама. Корневой модуль цели не может
 одновременно собираться её зависимостью, цикл целей и зависимость от Application —
-ошибки. `AndroidAssets`/`AndroidNativeLibraries` объявляйте в модулях самого приложения.
+ошибки. `AndroidAssets`, `AndroidNativeLibraries` и `Resources` модулей целей-зависимостей (в том
+числе целей внешних проектов) попадают в APK и `Binaries` приложения.
 
 Макрос экспорта: для каждого модуля явной цели определяется `<ИМЯ>_API`
 (`CORE_API`). Внутри `SharedLibrary` он равен `__declspec(dllexport)`, у потребителей —
@@ -223,6 +224,52 @@ Visual Studio-конфигурации — Windows x64/ARM64 и Android (см. �
 (clangd, VS Code, CLion, clang-tidy): записи текущей цели заменяют прежние записи тех же
 файлов, файлы Unity получают команды своего блока. Копия для цели лежит в её каталоге
 `Intermediate/Build/...`. Отключение: `"generateCompileCommands": false`.
+
+#### Внешние проекты
+
+Цели и модули другого проекта Beast (например, SDK в git submodule) подключаются в
+`Config/BuildConfig.json` приложения:
+
+```json
+"externalProjects": [
+  { "name": "Beast", "path": "../../BeastSDK" }
+]
+```
+
+`path` — относительно корня проекта или абсолютный; раскрываются `%VAR%`, `$VAR`, `${VAR}` и `~`.
+Внешний проект — обычный проект Beast со своими `Source/**/*.Build.cs` и `Source/*.Target.cs`
+(и, при необходимости, своими `externalProjects` — они подключаются тоже). Его цели доступны в
+`TargetDependencies`, модули — в `PublicDependencies`/`PrivateDependencies`:
+
+```csharp
+// Source/EcoSbor.Target.cs
+public sealed class EcoSborTarget : TargetRules {
+    public EcoSborTarget(ModulesInfo info) { Modules.Add("Launch"); TargetDependencies.Add("Beast"); }
+}
+// Source/Launch/Launch.Build.cs
+PrivateDependencies.Add("UI");   // модуль внешнего проекта
+```
+
+- Имена целей и модулей общие для всех проектов: совпадение — ошибка с путями обоих файлов.
+- Пути в правилах внешнего модуля (`PublicIncludePaths`, `BuildSteps`, `RuntimeDependencies`,
+  `Resources`, `{ModuleDir}`, `{ProjectDir}`) отсчитываются от внешнего проекта; внутри его правил
+  `info.ProjectDirectory`/`info.ProjectSourceDirectory` указывают на него, `info.ExternalProjectName` —
+  его имя, `info.BuildProjectDirectory` — собираемое приложение.
+- `Source/` внешнего проекта добавляется в include-пути его модулей и их потребителей
+  (`#include "Core/Public/SdkCore.h"`); `Source/` приложения внешним модулям не виден.
+- Промежуточные файлы внешней цели пишутся в `Intermediate/Build/<platform>/<config>/External/<name>/`
+  приложения, библиотека — в его `Binaries`. Дерево внешнего проекта остаётся чистым, поэтому
+  несколько приложений собираются с одним SDK параллельно. Инкрементальность и кеш работают как для
+  своих целей: правка заголовка SDK перекомпилирует нужное в SDK и в приложении.
+- `AndroidAssets`, `AndroidNativeLibraries`, `Resources`, `RuntimeDependencies` модулей внешней цели
+  попадают в APK / `Binaries` приложения.
+- `clean` очищает и копию сборки внешнего проекта; `clean --target Beast` — только её.
+- Цель по умолчанию, `install`/`test` без `--target` и VS Code берут только цели самого проекта;
+  `generate` добавляет в решение Visual Studio (и проект Xcode) цели внешних проектов, от которых
+  зависит приложение, а их исходники — в папку `External\<name>` Solution Explorer; IntelliSense и
+  `compile_commands.json` включают исходники внешнего проекта.
+- Настройки сборки (`Config/BuildConfig.json`: компиляторы, Android, vcpkg) берутся из приложения;
+  из конфигурации внешнего проекта читается только его `externalProjects`.
 
 Совместимость: без `.Target.cs` работает старый режим — необходим `Launch`,
 все модули включаются автоматически, их настройки объединяются. Этот режим устарел,

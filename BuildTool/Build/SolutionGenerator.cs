@@ -59,10 +59,10 @@ public static class SolutionGenerator
         if (windowsArm64 != null) Add(windowsArm64, "ARM64", "", "--platform Windows --arch arm64", false);
         if (android != null) Add(android, "x64", "Android ", "--platform Android", true);
 
-        var targets = vs[0].Model.Targets;
-        if (vs.Any(c => !c.Model.Targets.Select(t => t.Name).SequenceEqual(targets.Select(t => t.Name))))
+        var targets = vs[0].Model.UsedTargets;
+        if (vs.Any(c => !c.Model.UsedTargets.Select(t => t.Name).SequenceEqual(targets.Select(t => t.Name))))
             throw new InvalidOperationException("Target names must be consistent across configurations and platforms.");
-        if (vs.Any(c => c.Model.Targets.Any(t => t.Rules.Type != targets.Single(d => d.Name == t.Name).Rules.Type)))
+        if (vs.Any(c => c.Model.UsedTargets.Any(t => t.Rules.Type != targets.Single(d => d.Name == t.Name).Rules.Type)))
             throw new InvalidOperationException("A target's output type must be consistent across Visual Studio configurations.");
         var solutionProjects = new StringBuilder();
         var solutionConfigurations = new StringBuilder();
@@ -72,6 +72,10 @@ public static class SolutionGenerator
         string escapedProject = Escape(projectDir);
         string escapedToolCommand = Escape(toolCommand);
         var items = CollectProjectItems(projectDir);
+        // External projects' sources (absolute paths), under External\<name> in Solution Explorer.
+        foreach (var external in vs[0].Model.Externals)
+            items.AddRange(CollectProjectItems(external.Directory, useAbsolutePaths: true)
+                .Select(i => i with { LogicalPath = $"External\\{external.Name}\\{i.LogicalPath}" }));
         string toolset = PlatformToolset(VisualStudioInstance.VCToolChainPath);
         foreach (var target in targets)
         {

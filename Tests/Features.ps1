@@ -233,6 +233,33 @@ Check (Test-Path (Join-Path (Binaries 'Debug') 'Assets/Data/level.txt')) 'resour
 Check ((Output (Join-Path (Binaries 'Debug') 'Res.exe')) -eq 'resource 42|level 7|unicode') 'resources not read by BeastResources.h'
 Write-Host 'PASS: resources (next to the EXE, dependency target, non-ASCII name)'
 
+# External projects (Tests/Fixtures/External): AppA and AppB link the SDK project's static library
+# target; both build at the same time, the SDK tree stays clean, an SDK header edit rebuilds both
+# sides, and the Visual Studio solution contains the SDK target and its sources.
+$ext = Join-Path $testRoot 'External'
+Copy-Item -Recurse (Join-Path $PSScriptRoot 'Fixtures/External') $ext
+$jobs = foreach ($app in 'AppA', 'AppB') {
+    Start-Process -FilePath $tool -ArgumentList @('build', "`"$(Join-Path $ext $app)`"", '--config', 'Debug') -NoNewWindow -PassThru `
+        -RedirectStandardOutput (Join-Path $testRoot "$app.log") -RedirectStandardError (Join-Path $testRoot "$app.err")
+}
+$jobs | Wait-Process
+foreach ($job in $jobs) { Check ($job.ExitCode -eq 0) "external project build failed: $(Get-Content (Join-Path $testRoot 'AppA.log') -Raw) $(Get-Content (Join-Path $testRoot 'AppB.log') -Raw)" }
+foreach ($app in 'AppA', 'AppB') {
+    $output = Output (Join-Path $ext "$app/Binaries/Windows/Debug/$app.exe")
+    Check ($output -eq "$app 42 1 1 resource") "$app output: $output"
+    Check (Test-Path (Join-Path $ext "$app/Intermediate/Build/Windows/Debug/External/SDK/SDK")) "$app: SDK not built under External/SDK"
+}
+Check (-not (Test-Path (Join-Path $ext 'SDK/Intermediate')) -and -not (Test-Path (Join-Path $ext 'SDK/Binaries'))) 'build files were written into the external project'
+$header = Join-Path $ext 'SDK/Source/Core/Public/SdkCore.h'
+[IO.File]::WriteAllText($header, ([IO.File]::ReadAllText($header) -replace 'SDK_VERSION 1', 'SDK_VERSION 2'))
+Beast @('build', (Join-Path $ext 'AppA'), '--config', 'Debug')
+Check ((Output (Join-Path $ext 'AppA/Binaries/Windows/Debug/AppA.exe')) -eq 'AppA 43 2 1 resource') 'AppA not rebuilt after the SDK header edit'
+Beast @('generate', (Join-Path $ext 'AppA'))
+Check (Test-Path (Join-Path $ext 'AppA/SDK.vcxproj')) 'no SDK.vcxproj in the solution'
+Check ((Get-Content (Join-Path $ext 'AppA/AppA.vcxproj.filters') -Raw) -match 'External\\SDK\\Source\\Widgets') 'SDK sources missing from the filters'
+Check ((Get-Content (Join-Path $ext 'AppA/AppA.sln') -Raw) -match 'SDK.vcxproj') 'SDK.vcxproj missing from the solution'
+Write-Host 'PASS: external projects (parallel consumers, clean external tree, header edit, Visual Studio)'
+
 # Package managers: a separate project each, so their manifests do not affect the tests above.
 function PackageProject([string]$Name) {
     $script:project = Join-Path $testRoot $Name

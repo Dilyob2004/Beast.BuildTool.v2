@@ -39,20 +39,22 @@ namespace Beast.BuildTool
                 return GlobalEnvironment.ThirdPartyPath;
             }
         }
-        public string SourceDirectory
-        {
-            get
-            {
-                return GlobalEnvironment.SourcePath;
-            }
-        }
-        public string? ProjectDirectory => GlobalEnvironment.ProjectPath;
-        public string? ProjectSourceDirectory => GlobalEnvironment.ProjectPath != null ? System.IO.Path.Combine(GlobalEnvironment.ProjectPath, "Source") : null;
-        public ModulesInfo(TargetConfiguration configuration, Platform platform)
+        private readonly string? _projectDirectory;
+        public string SourceDirectory => _projectDirectory != null ? System.IO.Path.Combine(_projectDirectory, "Source") : GlobalEnvironment.SourcePath;
+        /// <summary>Root of the project whose rules are evaluated (an external project's root inside its own rules).</summary>
+        public string? ProjectDirectory => _projectDirectory ?? GlobalEnvironment.ProjectPath;
+        public string? ProjectSourceDirectory => ProjectDirectory != null ? System.IO.Path.Combine(ProjectDirectory, "Source") : null;
+        /// <summary>Root of the project being built (the application), also inside an external project's rules.</summary>
+        public string? BuildProjectDirectory => GlobalEnvironment.ProjectPath;
+        /// <summary>Name of the external project whose rules are evaluated; null for the built project itself.</summary>
+        public string? ExternalProjectName { get; }
+        public ModulesInfo(TargetConfiguration configuration, Platform platform, string? projectDirectory = null, string? externalProjectName = null)
         {
             Configuration = configuration;
             Platform = platform.Type;
             Architecture = platform.Architecture;
+            _projectDirectory = projectDirectory;
+            ExternalProjectName = externalProjectName;
         }
     }
     public class ModuleRules
@@ -127,6 +129,10 @@ namespace Beast.BuildTool
 
         public string ModuleName = "";
         public string ModulePath = "";
+        /// <summary>Root of the project that defines this module (the external project's root for its modules).</summary>
+        public string ProjectDirectory = "";
+        /// <summary>Name of the external project that defines this module; null for the project's own modules.</summary>
+        public string? ExternalProject;
 
     }
 }

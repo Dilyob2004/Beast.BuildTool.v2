@@ -61,7 +61,8 @@ public sealed class GenericProjectBuilder
         // Android test targets are plain executables run through adb, not APKs.
         bool androidApplication = platform.Type == PlatformType.Android && target.Rules.Type == TargetType.Application && !target.Rules.IsTest;
         Log.TraceInfo($"Building target {target.Name} ({target.Rules.Type}), {platform.PlatformName} {configuration}");
-        string buildPath = Path.Combine(projectPath, "Intermediate", "Build", platform.PlatformName, configuration.ToString(), target.Name);
+        // An external project's target builds into this project's Intermediate/.../External/<name>/<target>.
+        string buildPath = model.BuildDirectory(platform.PlatformName, configuration, target.Name);
         string outputPath = Path.Combine(projectPath, "Binaries", platform.PlatformName, configuration.ToString());
         var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs, Path.Combine(buildPath, "BuildTrace.json"));
         var steps = new BuildStepPlan(projectPath, buildPath, outputPath, platform.PlatformName, configuration.ToString(), target.Name, modules);
@@ -205,14 +206,10 @@ public sealed class GenericProjectBuilder
         if (androidApplication)
         {
             AndroidApplication.Ensure(projectPath, target.Name);
+            // APK files (AndroidAssets, AndroidNativeLibraries, Resources) come from the application's
+            // modules and those of its dependency targets, including external projects' targets.
             foreach (var dependency in model.TargetDependencies(target))
-            {
-                foreach (var module in model.OwnModules(dependency))
-                    if (module.AndroidAssets.Count > 0 || module.AndroidNativeLibraries.Count > 0)
-                        throw new InvalidOperationException($"Module '{module.ModuleName}' of dependency target '{dependency.Name}' declares APK files. " +
-                            "Declare AndroidAssets/AndroidNativeLibraries in a module of the application target.");
                 if (dependency.Rules.Type == TargetType.SharedLibrary) sharedDependencies.Add(TargetOutput(platform, outputPath, dependency));
-            }
             sharedDependencies.AddRange(shippedPackages.Distinct(StringComparer.OrdinalIgnoreCase));
             package = new AndroidPackagePlan(buildPath, target.Name, modules, steps, (AndroidPlatform)platform, resourceModules);
             package.AddCopies(executor);

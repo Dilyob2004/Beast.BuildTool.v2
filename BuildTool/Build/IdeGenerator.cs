@@ -155,7 +155,7 @@ public static class XcodeGenerator
         // One external build target per Beast target, and an iOS Simulator target per application.
         var targetIds = new List<string>();
         var schemes = new List<SchemeInfo>();
-        foreach (var target in model.Targets)
+        foreach (var target in model.UsedTargets)
         {
             AddTarget(target.Name, "build", "Mac");
             if (target.Rules.Type != TargetType.Application) continue;
@@ -372,7 +372,7 @@ public static class VsCodeGenerator
         if (host != null)
         {
             var launches = new JsonArray();
-            foreach (var target in ProjectModel.Load(projectDir, host, TargetConfiguration.Debug).Targets.Where(t => t.Rules.Type == TargetType.Application))
+            foreach (var target in ProjectModel.Load(projectDir, host, TargetConfiguration.Debug).OwnTargets.Where(t => t.Rules.Type == TargetType.Application))
             {
                 string binaries = Path.Combine(projectDir, "Binaries", host.PlatformName, "Debug");
                 string program = "${workspaceFolder}/" + Path.GetRelativePath(projectDir, IdeGenerator.ProgramPath(binaries, host, target)).Replace('\\', '/');

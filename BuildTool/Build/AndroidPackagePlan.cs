@@ -21,15 +21,15 @@ public sealed class AndroidPackagePlan
         Abi = platform.Abi;
         elfMachine = platform.ElfMachine;
         var destinations = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var module in modules)
+        // Modules of the application and of its dependency targets (resourceModules). Resources go to
+        // assets/ with the same relative paths as on other platforms, so BeastResources.h reads
+        // "Assets/x.png" everywhere.
+        foreach (var module in resourceModules ?? modules)
         {
             foreach (var item in module.AndroidAssets) Collect(module, item, false);
             foreach (var item in module.AndroidNativeLibraries) Collect(module, item, true);
-        }
-        // Resources (also of dependency targets) go to assets/ with the same relative paths as on
-        // other platforms, so BeastResources.h reads "Assets/x.png" everywhere.
-        foreach (var module in resourceModules ?? modules)
             foreach (var item in module.Resources) Collect(module, item, false);
+        }
         entries = destinations.Values.OrderBy(e => e.Destination, StringComparer.Ordinal).ToList();
         // A changed file set gets its own staging tree. Removed declarations cannot
         // leak into APKs and no files in the user's Gradle project need deleting.
