@@ -493,6 +493,24 @@ beast clean "$ext/AppA" --target SDK
 check '[[ ! -d "$ext/AppA/Intermediate/Build/$platform/Debug/External/SDK/SDK" ]]' 'clean --target SDK left the external build'
 pass 'external projects (parallel consumers, clean external tree, header edit, clean)'
 
+# Custom templates (Tests/Fixtures/Templates/UIApplication): new --template copies the template,
+# replacing placeholders in names and text files; binary files stay byte-identical; the template's
+# externalProjects path ({{TemplateDirRelative}}) reaches the SDK fixture; built-in parts (Android
+# Gradle project) fill in what the template does not provide, without replacing its files.
+mkdir -p "$work/Fixtures"
+cp -R "$root/Tests/Fixtures/External" "$root/Tests/Fixtures/Templates" "$work/Fixtures/"
+beast new MyUi --path "$work/Projects" --template "$work/Fixtures/Templates/UIApplication"
+ui="$work/Projects/MyUi"
+check '[[ -f "$ui/Source/MyUi.Target.cs" && -f "$ui/Source/MyUiApp/MyUiApp.Build.cs" ]] && grep -q "class MyUiTarget" "$ui/Source/MyUi.Target.cs"' 'template placeholders in names/contents'
+check 'cmp -s "$ui/Source/MyUiApp/Assets/logo.bin" "$work/Fixtures/Templates/UIApplication/Source/{{ProjectIdentifier}}App/Assets/logo.bin"' 'binary template file changed'
+check 'grep -q "MyUi (template)" "$ui/Platforms/Android/app/src/main/res/values/strings.xml" && [[ -f "$ui/Platforms/Android/settings.gradle" ]]' 'Android: template file replaced or Gradle project not completed'
+check 'grep -q "\.\./\.\./Fixtures/Templates/UIApplication/\.\./\.\./External/SDK" "$ui/Config/BuildConfig.json"' '{{TemplateDirRelative}}'
+beast build "$ui" --config Debug
+"${tool[@]}" run "$ui" --no-build >"$work/ui.log" 2>&1 || { cat "$work/ui.log"; annotate 'template project run failed' "$work/ui.log"; exit 1; }
+check 'grep -q "MyUi template 42 22" "$work/ui.log"' 'project from the template (external SDK, resources)'
+check '! "${tool[@]}" new Bad --path "$work/Projects" --template "$work/Fixtures/Missing" >"$work/last.log" 2>&1 && [[ ! -e "$work/Projects/Bad" ]]' 'missing template accepted'
+pass 'custom templates (new --template)'
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"

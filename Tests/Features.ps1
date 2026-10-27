@@ -271,6 +271,20 @@ Check ((Get-Content (Join-Path $ext 'AppA/AppA.vcxproj.filters') -Raw) -match 'E
 Check ((Get-Content (Join-Path $ext 'AppA/AppA.sln') -Raw) -match 'SDK.vcxproj') 'SDK.vcxproj missing from the solution'
 Write-Host 'PASS: external projects (parallel consumers, clean external tree, header edit, Visual Studio)'
 
+# Custom template: placeholders, binary file, externalProjects via {{TemplateDirRelative}}, Visual Studio files.
+$fixtures = Join-Path $testRoot 'Fixtures'
+New-Item -ItemType Directory -Force $fixtures | Out-Null
+Copy-Item -Recurse (Join-Path $PSScriptRoot 'Fixtures/External'), (Join-Path $PSScriptRoot 'Fixtures/Templates') $fixtures
+Beast @('new', 'MyUi', '--path', (Join-Path $testRoot 'Projects'), '--template', (Join-Path $fixtures 'Templates/UIApplication'))
+$ui = Join-Path $testRoot 'Projects/MyUi'
+Check (Test-Path (Join-Path $ui 'Source/MyUi.Target.cs')) 'template file name placeholder'
+Check (Test-Path (Join-Path $ui 'MyUi.sln')) 'solution not generated for the template project'
+$logo = Join-Path $ui 'Source/MyUiApp/Assets/logo.bin'
+Check ((Get-FileHash $logo).Hash -eq (Get-FileHash -LiteralPath (Join-Path $fixtures 'Templates/UIApplication/Source/{{ProjectIdentifier}}App/Assets/logo.bin')).Hash) 'binary template file changed'
+Beast @('build', $ui, '--config', 'Debug')
+Check ((Output (Join-Path $ui 'Binaries/Windows/Debug/MyUi.exe')) -eq 'MyUi template 42 22') 'project from the template'
+Write-Host 'PASS: custom templates (new --template)'
+
 # Package managers: a separate project each, so their manifests do not affect the tests above.
 function PackageProject([string]$Name) {
     $script:project = Join-Path $testRoot $Name
