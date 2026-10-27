@@ -91,7 +91,9 @@ for _ in $(seq 1 30); do "$adb" logcat -d -s Droid:I >"$work/logcat.txt" 2>&1 ||
 grep -q "Hello from Droid!" "$work/logcat.txt" || fail "no 'Hello from Droid!' in logcat" "$work/logcat.txt"
 echo "PASS: APK installed and started, greeting in logcat"
 apk="$(find "$project/Binaries" -name 'Droid.apk' | head -n 1)"
-unzip -l "$apk" | grep -q "assets/Assets/greeting.txt" || fail "APK has no assets/Assets/greeting.txt"
+# (listing to a file: with pipefail, grep -q closing the pipe early would fail unzip with SIGPIPE)
+unzip -l "$apk" >"$work/apk.txt" || fail "cannot list $apk"
+grep -q "assets/Assets/greeting.txt" "$work/apk.txt" || fail "APK has no assets/Assets/greeting.txt" "$work/apk.txt"
 grep -q "resource: resource 42" "$work/logcat.txt" || fail "resource not read from the APK" "$work/logcat.txt"
 echo "PASS: resources in the APK, read with BeastResources.h"
 
