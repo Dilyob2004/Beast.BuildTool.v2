@@ -18,14 +18,38 @@
 
 ## Быстрый старт
 
-Из исходников (нужен .NET 8 SDK):
+Из исходников нужны .NET 10 SDK (минимальная версия; подойдёт и более новый) и компилятор платформы:
+на Windows — Visual Studio C++ Desktop (MSVC и Windows SDK), на Linux — `clang` (или `g++`), на macOS —
+Xcode или `xcode-select --install`.
 
-Нужны .NET 8 SDK (или новее с поддержкой .NET 8) и компилятор платформы: на Windows —
-Visual Studio C++ Desktop (MSVC и Windows SDK), на Linux — `clang` (или `g++`), на macOS —
-Xcode или `xcode-select --install`. Команды ниже запускаются из корня репозитория. Windows:
+### .NET 10 SDK
+
+Скрипты в корне репозитория ставят SDK без прав администратора официальным установщиком Microsoft
+(`dotnet-install`, канал 10.0) и прописывают его в `PATH`; если подходящий SDK уже есть, ничего не делают:
+
+```bash
+bash InstallDotnet.sh          # Linux, macOS: в ~/.dotnet, PATH и DOTNET_ROOT — в ~/.zshrc / ~/.bashrc
+```
 
 ```powershell
-dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+powershell -ExecutionPolicy Bypass -File InstallDotnet.ps1   # Windows: в %LOCALAPPDATA%\Microsoft\dotnet
+```
+
+Параметры: `--dir`/`-Dir` — другая папка, `--force`/`-Force` — установить даже при наличии SDK,
+`--no-profile`/`-NoPath` — не менять `PATH`. После установки откройте новый терминал: `dotnet --version`.
+Другие способы — установщик с [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/10.0),
+`brew install --cask dotnet-sdk` (macOS), `winget install Microsoft.DotNet.SDK.10` (Windows).
+
+`global.json` в корне требует SDK 10 или новее: со старым SDK сборка сразу сообщает, какая версия нужна.
+`Build.sh`/`Build.bat` сами находят подходящий SDK (в `PATH`, `DOTNET_ROOT`, `~/.dotnet`,
+`%LOCALAPPDATA%\Microsoft\dotnet`), даже если первым в `PATH` стоит старый.
+
+### Первый проект
+
+Команды ниже запускаются из корня репозитория. Windows:
+
+```powershell
+Build.bat
 .\BuildTool\bin\Beast.BuildTool.exe new HelloApp --path Projects
 .\BuildTool\bin\Beast.BuildTool.exe build Projects/HelloApp --platform Windows --config Debug
 .\Projects\HelloApp\Binaries\Windows\Debug\HelloApp.exe

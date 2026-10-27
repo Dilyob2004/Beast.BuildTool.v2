@@ -69,7 +69,8 @@ public sealed class GameTarget : TargetRules
 }
 ```
 
-Сборка из исходников: .NET 8 SDK и `Build.bat` (Windows) или `bash Build.sh` (Linux, macOS).
+Сборка из исходников: .NET 10 SDK (`bash InstallDotnet.sh` или `InstallDotnet.ps1` ставят его) и `Build.bat`
+(Windows) или `bash Build.sh` (Linux, macOS).
 
 ## Документация
 
