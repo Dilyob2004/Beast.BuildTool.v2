@@ -91,6 +91,14 @@ namespace Beast.BuildTool
         // relative to assets/ or a single filename under lib/arm64-v8a/.
         public RuntimeDependencyCollection AndroidAssets { get; } = new();
         public RuntimeDependencyCollection AndroidNativeLibraries { get; } = new();
+        /// <summary>
+        /// Java/Kotlin sources compiled into the APK (also from dependency and external targets):
+        /// a file with its destination below the Java source root ("com/beast/sdk/TextInput.java";
+        /// without one, the file's package declaration decides), or a directory whose contents are
+        /// package directories (recursively). Staged outside the Gradle project and added to its
+        /// main source set; files removed from the rules disappear from the next APK.
+        /// </summary>
+        public RuntimeDependencyCollection AndroidJavaSources { get; } = new();
         public List<BuildStep> BuildSteps { get; } = [];
         public HashSet<string> GeneratedSources { get; } = new(StringComparer.OrdinalIgnoreCase);
         [Obsolete("Not used by Beast. Use PublicDependencies/PrivateDependencies, InputLibraries or VcpkgLibraries.")]

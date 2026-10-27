@@ -242,6 +242,17 @@ Test("external projects", () =>
     Check(File.ReadAllText(Path.Combine(app, "App.vcxproj.filters")).Contains(@"External\SDK\Source\Widgets"), "external sources in filters");
 });
 
+Test("Android Java source destinations", () =>
+{
+    string java = Path.Combine(root, "Java");
+    Write(Path.Combine(java, "A.java"), "// header\npackage com.beast.sdk.text;\npublic class A {}\n");
+    Write(Path.Combine(java, "B.java"), "public class B {}\n");
+    Write(Path.Combine(java, "C.kt"), "package com.beast.k\nclass C\n");
+    Check(AndroidPackagePlan.JavaPath(Path.Combine(java, "A.java")) == "com/beast/sdk/text/A.java", "package path");
+    Check(AndroidPackagePlan.JavaPath(Path.Combine(java, "B.java")) == "B.java", "default package");
+    Check(AndroidPackagePlan.JavaPath(Path.Combine(java, "C.kt")) == "com/beast/k/C.kt", "Kotlin package without ';'");
+});
+
 Test("Xcode and VS Code generation", () =>
 {
     // The Android platform stands in for macOS: generation only lists targets and paths.
