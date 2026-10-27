@@ -78,6 +78,13 @@ namespace Beast.BuildTool
         /// <summary>macOS frameworks of the SDK or on the framework search path, linked as -framework Name.</summary>
         public HashSet<string> Frameworks { get; } = new(StringComparer.Ordinal);
         public RuntimeDependencyCollection RuntimeDependencies { get; } = new();
+        /// <summary>
+        /// Application resources (files or directories, module-relative; destination relative to the
+        /// resource root): next to the program on Windows/Linux, in X.app/Contents/Resources on macOS,
+        /// in X.app on iOS, in the APK's assets on Android. Read them with BeastResources.h.
+        /// Modules of the application and of its dependency targets may declare them.
+        /// </summary>
+        public RuntimeDependencyCollection Resources { get; } = new();
         // APK-only declarations. Sources are module-relative; destinations are
         // relative to assets/ or a single filename under lib/arm64-v8a/.
         public RuntimeDependencyCollection AndroidAssets { get; } = new();

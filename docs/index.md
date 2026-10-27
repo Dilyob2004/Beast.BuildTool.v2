@@ -34,7 +34,7 @@
 3. [Платформы](platforms.md)
 4. [Модули C++20](cpp-modules.md)
 5. [PCH и Unity Build](compilation.md)
-6. [Генерация кода и runtime-файлы](build-steps.md)
+6. [Генерация кода, ресурсы и runtime-файлы](build-steps.md)
 7. [Тесты, установка и пакеты](packaging.md)
 8. [vcpkg и Conan](packages.md)
 9. [IDE и редакторы](ide.md)

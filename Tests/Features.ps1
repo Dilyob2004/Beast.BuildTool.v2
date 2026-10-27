@@ -211,6 +211,28 @@ if ($clang) {
     } finally { SetConfig { param($c) $c.windows.compiler = 'msvc' } }
 } else { Skip 'clang-cl: C++ Clang tools for Windows are not installed' }
 
+# Resources: copied next to the EXE (with a dependency target's resources), read through
+# BeastResources.h, including a non-ASCII file name (UTF-8 -> UTF-16 on Windows).
+Module 'ResData' 'Resources.Add("Data", "Assets/Data");'
+Put 'Source/ResData/Data/level.txt' "level 7"
+Put 'Source/ResData/Stub.cpp' "int ResDataStub() { return 7; }`n"
+Module 'ResApp' 'Resources.Add("Assets");'
+Put 'Source/ResApp/Assets/greeting.txt' "resource 42"
+Put "Source/ResApp/Assets/$([char]0x043F)$([char]0x0440)$([char]0x0438)$([char]0x0432)$([char]0x0435)$([char]0x0442).txt" "unicode"
+Put 'Source/ResApp/Main.cpp' @'
+#include "BeastResources.h"
+#include <cstdio>
+#include <string>
+static std::string Text(const char* path) { std::string text; return Beast::ReadResource(path, text) ? text : "missing"; }
+int main() { std::printf("%s|%s|%s\n", Text("Assets/greeting.txt").c_str(), Text("Assets/Data/level.txt").c_str(), Text("Assets/\xd0\xbf\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82.txt").c_str()); return 0; }
+'@
+Target 'ResDataLib' 'Type = TargetType.StaticLibrary; Modules.Add("ResData");'
+Target 'Res' 'Modules.Add("ResApp"); TargetDependencies.Add("ResDataLib");'
+Beast @('build', $project, '--target', 'Res', '--config', 'Debug')
+Check (Test-Path (Join-Path (Binaries 'Debug') 'Assets/Data/level.txt')) 'resources of the dependency target not copied'
+Check ((Output (Join-Path (Binaries 'Debug') 'Res.exe')) -eq 'resource 42|level 7|unicode') 'resources not read by BeastResources.h'
+Write-Host 'PASS: resources (next to the EXE, dependency target, non-ASCII name)'
+
 # Package managers: a separate project each, so their manifests do not affect the tests above.
 function PackageProject([string]$Name) {
     $script:project = Join-Path $testRoot $Name

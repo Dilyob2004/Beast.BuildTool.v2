@@ -90,7 +90,8 @@ public sealed class IosPlatform : UnixPlatform
     /// provisioning profile's entitlements). Signing a copy keeps the link output unchanged, so
     /// builds stay incremental.
     /// </summary>
-    public void AddBundle(CommandExecutor executor, string binaries, string buildPath, string target, string version, string program, IReadOnlyList<string> frameworks)
+    public void AddBundle(CommandExecutor executor, string binaries, string buildPath, string target, string version, string program, IReadOnlyList<string> frameworks,
+        IReadOnlyList<string>? resources = null)
     {
         string bundle = BundlePath(binaries, target);
         Directory.CreateDirectory(bundle);
@@ -132,6 +133,8 @@ public sealed class IosPlatform : UnixPlatform
         string signature = Path.Combine(bundle, "_CodeSignature", "CodeResources");
         var inputs = new List<string> { program, plist, typeof(IosPlatform).Assembly.Location };
         inputs.AddRange(frameworks);
+        // Resources are copied into the bundle first; the signature seals them.
+        if (resources != null) inputs.AddRange(resources);
         if (profile != null) inputs.Add(profile);
         string identity = Simulator ? "-" : settings.SigningIdentity;
         executor.AddCommand(new CommandContext("/usr/bin/codesign", $"bundle-v1 {identity}", CommandType.Copy, [signature], inputs, true,

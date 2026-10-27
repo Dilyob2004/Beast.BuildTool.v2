@@ -394,6 +394,56 @@ if [[ $os == Mac ]]; then
 fi
 pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"
 
+# Resources: one declaration (Resources.Add) for every platform. Linux: next to the program; macOS:
+# Res.app/Contents/Resources; iOS: the bundle root. A dependency target's resources reach the
+# application; BeastResources.h finds and reads them; changes are copied incrementally.
+res="$work/Res"
+beast new Res --path "$work"
+rm -rf "$res/Source"
+project_saved="$project"; project="$res"
+module Data 'Resources.Add("Data", "Assets/Data");'
+put Source/Data/Data/level.txt 'level 7'
+put Source/Data/Stub.cpp 'int DataStub() { return 7; }'
+module ResApp 'Resources.Add("Assets");'
+put Source/ResApp/Assets/greeting.txt 'resource 42'
+put Source/ResApp/Assets/Sub/deep.txt 'deep'
+put Source/ResApp/Main.cpp '#include "BeastResources.h"
+#include <cstdio>
+#include <string>
+static std::string Line(const char* path) { std::string text; if (!Beast::ReadResource(path, text)) return "missing"; while (!text.empty() && (text.back() == 10 || text.back() == 13)) text.pop_back(); return text; }
+int main() { std::string unused; std::printf("%s|%s|%s\n", Line("Assets/greeting.txt").c_str(), Line("Assets/Data/level.txt").c_str(), Beast::ReadResource("Assets/none.txt", unused) ? "found" : "absent"); return 0; }'
+target DataLib 'Type = TargetType.StaticLibrary; Modules.Add("Data");'
+target Res 'Modules.Add("ResApp"); TargetDependencies.Add("DataLib"); ConsoleApplication = info.Platform != PlatformType.Mac;'
+project="$project_saved"
+resbin="$res/Binaries/$platform/Debug"
+[[ $os == Mac ]] && resroot="$resbin/Res.app/Contents/Resources" || resroot="$resbin"
+beast build "$res" --config Debug
+check '[[ -f "$resroot/Assets/greeting.txt" && -f "$resroot/Assets/Sub/deep.txt" && -f "$resroot/Assets/Data/level.txt" ]]' 'resources not placed'
+"${tool[@]}" run "$res" --no-build >"$work/res.log" 2>&1 || { cat "$work/res.log"; annotate 'resource program failed' "$work/res.log"; exit 1; }
+check 'grep -q "resource 42|level 7|absent" "$work/res.log"' 'resources not read by BeastResources.h'
+beast build "$res" --config Debug
+check '! grep -qE "Done: [1-9][0-9]* executed" "$work/last.log"' 'no-op build copied resources'
+printf 'resource 43\n' >"$res/Source/ResApp/Assets/greeting.txt"
+rm "$res/Source/ResApp/Assets/Sub/deep.txt"
+beast build "$res" --config Debug
+check 'grep -q "Done: 1 executed" "$work/last.log"' 'changed resource: expected one copy'
+check '[[ ! -f "$resroot/Assets/Sub/deep.txt" ]] && grep -q "resource 43" "$resroot/Assets/greeting.txt"' 'resource update/removal'
+beast install "$res" --prefix "$work/ResInstall" --config Debug
+if [[ $os == Mac ]]; then
+    check 'codesign --verify --deep --strict "$work/ResInstall/bin/Res.app"' 'installed bundle with resources is not validly signed'
+    check '"$work/ResInstall/bin/Res.app/Contents/MacOS/Res" | grep -q "resource 43|level 7"' 'installed .app does not read its resources'
+else
+    check '"$work/ResInstall/bin/Res" | grep -q "resource 43|level 7"' 'installed program does not read its resources'
+fi
+if [[ -n "${sim:-}" ]]; then
+    beast build "$res" --platform IOSSimulator --config Debug
+    check '[[ -f "$res/Binaries/$sim/Debug/Res.app/Assets/greeting.txt" && -f "$res/Binaries/$sim/Debug/Res.app/Assets/Data/level.txt" ]]' 'iOS bundle resources'
+    check 'codesign --verify --strict "$res/Binaries/$sim/Debug/Res.app"' 'iOS bundle with resources is not validly signed'
+    "${tool[@]}" run "$res" --platform IOSSimulator --no-build >"$work/res-ios.log" 2>&1 || { cat "$work/res-ios.log"; annotate 'iOS resource program failed' "$work/res-ios.log"; exit 1; }
+    check 'grep -q "resource 43|level 7|absent" "$work/res-ios.log"' 'iOS: resources not read'
+fi
+pass "resources ($([[ $os == Mac ]] && echo ".app${sim:+, iOS bundle}" || echo 'next to the program'), dependency target, incremental, install)"
+
 # IDE files: 'new'/'generate' write .vscode on every host and, on macOS, an Xcode project whose
 # targets build through Beast (xcodebuild runs here exactly as Product > Build in Xcode).
 beast generate "$template"

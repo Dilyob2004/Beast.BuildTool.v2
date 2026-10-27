@@ -144,6 +144,18 @@ public sealed class GenericProjectBuilder
         bool androidExecutable = platform.Type == PlatformType.Android && target.Rules.Type == TargetType.Application && target.Rules.IsTest;
         // Libraries (and Android applications, which are .so files) are lib<Name> except on Windows.
         string baseName = target.Rules.Type != TargetType.Application || androidApplication ? platform.LibraryPrefix + target.Name : target.Name;
+        // Resources of the application and its dependency targets: next to the program, inside the
+        // macOS/iOS bundle, or (Android) in the APK's assets through the package plan below.
+        var resourceModules = modules.Concat(model.TargetDependencies(target).SelectMany(model.OwnModules)).Distinct().ToList();
+        bool macBundle = platform is MacPlatform && target.Rules.Type == TargetType.Application && !target.Rules.ConsoleApplication && !target.Rules.IsTest;
+        bool iosBundle = platform is IosPlatform && target.Rules.Type == TargetType.Application && !target.Rules.IsTest;
+        string? resourceRoot = target.Rules.Type != TargetType.Application || androidApplication ? null
+            : macBundle ? Path.Combine(MacPlatform.BundlePath(outputPath, target.Name), "Contents", "Resources")
+            : iosBundle ? IosPlatform.BundlePath(outputPath, target.Name)
+            : outputPath;
+        if (resourceRoot != null) steps.AddResourceCopies(executor, resourceModules, resourceRoot);
+        else if (target.Rules.Type != TargetType.Application && modules.Any(m => m.Resources.Count > 0))
+            Log.TraceVerbose($"{target.Name}: Resources are placed by the applications that depend on it.");
         if (target.Rules.Type == TargetType.StaticLibrary)
             platform.ArchiveFiles(executor, link.InputFiles.ToList(), Path.Combine(outputPath, baseName + platform.StaticLibraryFileExtension));
         else
@@ -165,11 +177,14 @@ public sealed class GenericProjectBuilder
             {
                 var embedded = model.TargetDependencies(target).Where(t => t.Rules.Type == TargetType.SharedLibrary)
                     .Select(t => TargetOutput(platform, outputPath, t)).Concat(PackageManagers.RuntimeBinaries(projectPath, platform, configuration)).Distinct().ToList();
-                ((IosPlatform)platform).AddBundle(executor, outputPath, buildPath, target.Name, target.Rules.Version, linkOutput, embedded);
+                ((IosPlatform)platform).AddBundle(executor, outputPath, buildPath, target.Name, target.Rules.Version, linkOutput, embedded, steps.ResourceOutputs);
             }
         }
         steps.AddRuntimeCopies(executor);
         var runtimeFiles = new List<string>(steps.RuntimeOutputs);
+        // Bundle resources travel with the .app (install copies the bundle); others are runtime files.
+        List<string> bundleResources = macBundle || iosBundle ? steps.ResourceOutputs : [];
+        if (!macBundle && !iosBundle) runtimeFiles.AddRange(steps.ResourceOutputs);
         // The MSVC AddressSanitizer runtime DLL must sit beside the EXE/DLL that loads it.
         if (platform is WindowsPlatform asanPlatform && link.Sanitizers.HasFlag(Sanitizer.Address) && target.Rules.Type != TargetType.StaticLibrary)
             foreach (string runtime in asanPlatform.AddressSanitizerRuntimes())
@@ -199,13 +214,13 @@ public sealed class GenericProjectBuilder
                 if (dependency.Rules.Type == TargetType.SharedLibrary) sharedDependencies.Add(TargetOutput(platform, outputPath, dependency));
             }
             sharedDependencies.AddRange(shippedPackages.Distinct(StringComparer.OrdinalIgnoreCase));
-            package = new AndroidPackagePlan(buildPath, target.Name, modules, steps, (AndroidPlatform)platform);
+            package = new AndroidPackagePlan(buildPath, target.Name, modules, steps, (AndroidPlatform)platform, resourceModules);
             package.AddCopies(executor);
         }
         if (BuildConfigManager.Config.GenerateCompileCommands)
             CompileCommandsGenerator.Write(projectPath, buildPath, executor.GetResults());
         await executor.ExecuteAsync();
-        RemoveStaleRuntimeFiles(buildPath, outputPath, runtimeFiles);
+        RemoveStaleRuntimeFiles(buildPath, outputPath, runtimeFiles.Concat(bundleResources).ToList());
         InstallManifest.Write(model, target, platform, configuration, buildPath, outputPath, baseName, link, runtimeFiles, steps);
 
         return platform is AndroidPlatform android && androidApplication

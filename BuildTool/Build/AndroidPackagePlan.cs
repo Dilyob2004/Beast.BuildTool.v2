@@ -15,7 +15,8 @@ public sealed class AndroidPackagePlan
     public string Abi { get; }
     private readonly ushort elfMachine;
 
-    public AndroidPackagePlan(string buildDirectory, string projectName, IReadOnlyList<ModuleRules> modules, BuildStepPlan paths, AndroidPlatform platform)
+    public AndroidPackagePlan(string buildDirectory, string projectName, IReadOnlyList<ModuleRules> modules, BuildStepPlan paths, AndroidPlatform platform,
+        IEnumerable<ModuleRules>? resourceModules = null)
     {
         Abi = platform.Abi;
         elfMachine = platform.ElfMachine;
@@ -25,6 +26,10 @@ public sealed class AndroidPackagePlan
             foreach (var item in module.AndroidAssets) Collect(module, item, false);
             foreach (var item in module.AndroidNativeLibraries) Collect(module, item, true);
         }
+        // Resources (also of dependency targets) go to assets/ with the same relative paths as on
+        // other platforms, so BeastResources.h reads "Assets/x.png" everywhere.
+        foreach (var module in resourceModules ?? modules)
+            foreach (var item in module.Resources) Collect(module, item, false);
         entries = destinations.Values.OrderBy(e => e.Destination, StringComparer.Ordinal).ToList();
         // A changed file set gets its own staging tree. Removed declarations cannot
         // leak into APKs and no files in the user's Gradle project need deleting.
