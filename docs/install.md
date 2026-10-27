@@ -115,10 +115,14 @@ beast new MyApp --path Projects --template ../BeastSDK/Templates/UIApplication
 | `{{ProjectIdentifier}}` (и `{{PROJECT_NAME}}`) | то же как идентификатор C#/C++ (для имён классов) |
 | `{{TemplateDir}}` | абсолютный путь к шаблону |
 | `{{TemplateDirRelative}}` | путь к шаблону от нового проекта (`/`), например для `externalProjects` |
+| `{{AndroidPackage}}` | Java-пакет приложения, `com.beast.<имя в нижнем регистре>`: `run` запускает `<пакет>.GameActivity` |
+| `{{AndroidPackagePath}}` | тот же пакет путём: `com/beast/<имя>` |
 
 Шаблон может содержать `Config/BuildConfig.json` (с `externalProjects`), `Source/{{ProjectName}}.Target.cs`
 и модули, `Platforms/Windows/Resources` (иконка, `.rc`), файлы Android-проекта (`Platforms/Android/...`:
-ресурсы `res/`, манифест). Файлы без подстановок и двоичные (картинки, UTF-16 `.rc`) копируются без
+ресурсы `res/`, манифест, своя активность
+`Platforms/Android/app/src/main/java/{{AndroidPackagePath}}/GameActivity.java` с
+`package {{AndroidPackage}};` — например, наследник базовой активности SDK). Файлы без подстановок и двоичные (картинки, UTF-16 `.rc`) копируются без
 изменений. Каталоги `Intermediate`, `Binaries`, `.git`, `.vs`, `.gradle`, `.idea` не копируются.
 Чего в шаблоне нет, Beast дополняет как для `new` без шаблона: `Config/BuildConfig.json`, ресурсы
 Windows, Gradle-проект Android — файлы шаблона при этом не заменяются. Затем, как обычно,

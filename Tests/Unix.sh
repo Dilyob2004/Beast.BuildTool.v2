@@ -508,6 +508,7 @@ check 'grep -q "\.\./\.\./Fixtures/Templates/UIApplication/\.\./\.\./External/SD
 beast build "$ui" --config Debug
 "${tool[@]}" run "$ui" --no-build >"$work/ui.log" 2>&1 || { cat "$work/ui.log"; annotate 'template project run failed' "$work/ui.log"; exit 1; }
 check 'grep -q "MyUi template 42 22" "$work/ui.log"' 'project from the template (external SDK, resources)'
+check 'grep -q "^package com.beast.myui;" "$ui/Platforms/Android/app/src/main/java/com/beast/myui/GameActivity.java" && grep -q "template-activity" "$ui/Platforms/Android/app/src/main/java/com/beast/myui/GameActivity.java"' '{{AndroidPackage}}/{{AndroidPackagePath}}: template activity'
 check '! "${tool[@]}" new Bad --path "$work/Projects" --template "$work/Fixtures/Missing" >"$work/last.log" 2>&1 && [[ ! -e "$work/Projects/Bad" ]]' 'missing template accepted'
 pass 'custom templates (new --template)'
 
@@ -554,6 +555,18 @@ EOF2
     nm="$(find "$ndk" -path '*/bin/llvm-nm' | head -n 1)"
     check '[[ -n "$glue" ]] && "$nm" "$glue" | grep -q "T BeastNativeActivityOnCreate"' 'native_app_glue not compiled from the NDK with its definition'
     pass 'Android APK with an external project (AndroidAssets, Resources, AndroidJavaSources: edit, removal; NDK native_app_glue)'
+    # Template project on Android: its GameActivity ({{AndroidPackagePath}}) is the APK's activity.
+    python3 - "$ui/Config/BuildConfig.json" "$sdk" "$ndk" "${JAVA_HOME:-}" <<'EOF2'
+import json, sys
+path, sdk, ndk, java = sys.argv[1:]
+c = json.load(open(path))
+c["android"] = {"sdkRoot": sdk, "ndkRoot": ndk, "javaHome": java, "abis": ["x86_64"]}
+json.dump(c, open(path, "w"), indent=2)
+EOF2
+    beast build "$ui" --platform Android --config Debug
+    unzip -p "$ui/Binaries/Android/Debug/MyUi.apk" 'classes*.dex' >"$work/ui.dex"
+    check 'grep -aq "Lcom/beast/myui/GameActivity;" "$work/ui.dex" && grep -aq "template-activity" "$work/ui.dex"' 'template activity is not the APK activity'
+    pass 'Android APK from a custom template (template GameActivity)'
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"

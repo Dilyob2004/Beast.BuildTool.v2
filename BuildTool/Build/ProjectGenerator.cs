@@ -52,8 +52,8 @@ public static class ProjectGenerator
     /// 'new --template &lt;directory&gt;': copies the template directory into the new project, replacing
     /// placeholders in file and directory names and in text files: {{ProjectName}}, {{ProjectIdentifier}}
     /// (a C# / C++ identifier), {{PROJECT_NAME}} (the same, as in the built-in templates), {{TemplateDir}}
-    /// (absolute) and {{TemplateDirRelative}} (from the new project, '/' separators, e.g. for
-    /// externalProjects paths). Intermediate, Binaries, .git, .vs, .gradle and .idea are not copied.
+    /// (absolute), {{TemplateDirRelative}} (from the new project, '/' separators, e.g. for
+    /// externalProjects paths), {{AndroidPackage}} (com.beast.&lt;name&gt;) and {{AndroidPackagePath}} (com/beast/&lt;name&gt;). Intermediate, Binaries, .git, .vs, .gradle and .idea are not copied.
     /// What the template does not provide is completed like a built-in project: Config/BuildConfig.json,
     /// Windows resources and the Android Gradle project (template files win).
     /// </summary>
@@ -90,6 +90,9 @@ public static class ProjectGenerator
                 ["{{PROJECT_NAME}}"] = HeaderGenerator.SanitizeIdentifier(projectName),
                 ["{{TemplateDir}}"] = template,
                 ["{{TemplateDirRelative}}"] = Path.GetRelativePath(projectDir, template).Replace('\\', '/'),
+                // Java package of the application's activity, as 'run' launches it (<package>.GameActivity).
+                ["{{AndroidPackage}}"] = AndroidApplication.Namespace(projectName),
+                ["{{AndroidPackagePath}}"] = AndroidApplication.Namespace(projectName).Replace('.', '/'),
             };
             string Replace(string text) => tokens.Aggregate(text, (current, token) => current.Replace(token.Key, token.Value));
             var skipped = new[] { "Intermediate", "Binaries", ".git", ".vs", ".gradle", ".idea" };
