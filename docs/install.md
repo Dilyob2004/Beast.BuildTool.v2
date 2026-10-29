@@ -103,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1 -Emulator
   репозитория Google (стабильный канал, проверка SHA-1), остальное ставит `sdkmanager`; лицензии
   принимаются автоматически. NDK — версия, на которой проверяется CI (`27.3.13750724`), другая —
   `--ndk`/`-Ndk`.
-- **Эмулятор** (`--emulator`/`-Emulator`): `emulator`, `system-images;android-34;google_apis;x86_64`
+- **Эмулятор** (`--emulator`/`-Emulator`): `emulator`, `platforms;android-34`, `system-images;android-34;google_apis;x86_64`
   (на Apple Silicon — `arm64-v8a`) и AVD `beast_api34` — для `run --platform Android --avd beast_api34`
   или `"defaultAvd": "beast_api34"`.
 - Уже установленное не скачивается повторно; `--force`/`-Force` переустанавливает всё, включая JDK.

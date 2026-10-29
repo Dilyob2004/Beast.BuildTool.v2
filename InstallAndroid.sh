@@ -117,6 +117,8 @@ need "build-tools;$BUILD_TOOLS" "build-tools/$BUILD_TOOLS/aapt2"
 need "ndk;$ndk" "ndk/$ndk/source.properties"
 if [[ $emulator == 1 ]]; then
     need emulator emulator/emulator
+    # The AVD's target (android-34): avdmanager does not list an AVD whose platform is missing.
+    need "platforms;android-34" "platforms/android-34/android.jar"
     need "$image" "system-images/android-34/google_apis/$image_abi/system.img"
 fi
 yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --licenses >/dev/null || true

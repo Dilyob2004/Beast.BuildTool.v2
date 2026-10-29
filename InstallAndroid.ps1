@@ -119,6 +119,8 @@ try {
     }
     if ($Emulator) {
         $wanted['emulator'] = 'emulator\emulator.exe'
+        # The AVD's target (android-34): avdmanager does not list an AVD whose platform is missing.
+        $wanted['platforms;android-34'] = 'platforms\android-34\android.jar'
         $wanted[$image] = "system-images\android-34\google_apis\$imageAbi\system.img"
     }
     $packages = @($wanted.Keys | Where-Object { $Force -or -not (Test-Path (Join-Path $Dir $wanted[$_])) })
