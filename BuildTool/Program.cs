@@ -54,7 +54,8 @@ internal static class Program
         string? name = args.Positionals.Skip(1).FirstOrDefault();
         if (string.IsNullOrWhiteSpace(name)) return Usage("Project name is required.");
         string location = args.HasArgument("path") ? args.GetArgument("path") : Environment.CurrentDirectory;
-        return ProjectGenerator.CreateProject(name, location) ? 0 : 1;
+        string? template = GetOptionalArgument(args, "template");
+        return (template != null ? ProjectGenerator.CreateFromTemplate(name, location, template) : ProjectGenerator.CreateProject(name, location)) ? 0 : 1;
     }
 
     private static int CreateModule(CommandLine args)
@@ -260,7 +261,7 @@ internal static class Program
 Beast BuildTool
   beast version
   beast worker --queue <shared-directory> --project-root <allowed-directory> --compiler-root <allowed-directory> [--key-env BEAST_WORKER_KEY] [--once] [--idle-timeout <seconds>] [--reserve-mb <MB>]
-  beast new <Name> [--path <directory>]
+  beast new <Name> [--path <directory>] [--template <directory>]   (custom template: files copied, {{ProjectName}} replaced)
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)

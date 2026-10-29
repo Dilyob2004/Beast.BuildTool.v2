@@ -100,5 +100,34 @@ Release подписывается локальным debug-ключом, есл
 не храните в Git. Полный .NET runtime нужен для запуска сборщика; на целевом
 устройстве приложение не требует .NET.
 
+## Свои шаблоны проектов
+
+```bash
+beast new MyApp --path Projects --template ../BeastSDK/Templates/UIApplication
+```
+
+Шаблон — обычный каталог: его файлы копируются в новый проект, а в именах файлов и каталогов и в
+текстовых файлах заменяются подстановки:
+
+| Подстановка | Значение |
+|---|---|
+| `{{ProjectName}}` | имя проекта, как в команде |
+| `{{ProjectIdentifier}}` (и `{{PROJECT_NAME}}`) | то же как идентификатор C#/C++ (для имён классов) |
+| `{{TemplateDir}}` | абсолютный путь к шаблону |
+| `{{TemplateDirRelative}}` | путь к шаблону от нового проекта (`/`), например для `externalProjects` |
+| `{{AndroidPackage}}` | Java-пакет приложения, `com.beast.<имя в нижнем регистре>`: `run` запускает `<пакет>.GameActivity` |
+| `{{AndroidPackagePath}}` | тот же пакет путём: `com/beast/<имя>` |
+
+Шаблон может содержать `Config/BuildConfig.json` (с `externalProjects`), `Source/{{ProjectName}}.Target.cs`
+и модули, `Platforms/Windows/Resources` (иконка, `.rc`), файлы Android-проекта (`Platforms/Android/...`:
+ресурсы `res/`, манифест, своя активность
+`Platforms/Android/app/src/main/java/{{AndroidPackagePath}}/GameActivity.java` с
+`package {{AndroidPackage}};` — например, наследник базовой активности SDK). Файлы без подстановок и двоичные (картинки, UTF-16 `.rc`) копируются без
+изменений. Каталоги `Intermediate`, `Binaries`, `.git`, `.vs`, `.gradle`, `.idea` не копируются.
+Чего в шаблоне нет, Beast дополняет как для `new` без шаблона: `Config/BuildConfig.json`, ресурсы
+Windows, Gradle-проект Android — файлы шаблона при этом не заменяются. Затем, как обычно,
+создаются файлы IDE (`.sln`, проект Xcode, `.vscode`). Пример — `Tests/Fixtures/Templates/UIApplication`
+(приложение на внешнем SDK из `Tests/Fixtures/External`).
+
 ---
 [Оглавление](index.md)

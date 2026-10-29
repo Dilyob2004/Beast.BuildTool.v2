@@ -493,6 +493,25 @@ beast clean "$ext/AppA" --target SDK
 check '[[ ! -d "$ext/AppA/Intermediate/Build/$platform/Debug/External/SDK/SDK" ]]' 'clean --target SDK left the external build'
 pass 'external projects (parallel consumers, clean external tree, header edit, clean)'
 
+# Custom templates (Tests/Fixtures/Templates/UIApplication): new --template copies the template,
+# replacing placeholders in names and text files; binary files stay byte-identical; the template's
+# externalProjects path ({{TemplateDirRelative}}) reaches the SDK fixture; built-in parts (Android
+# Gradle project) fill in what the template does not provide, without replacing its files.
+mkdir -p "$work/Fixtures"
+cp -R "$root/Tests/Fixtures/External" "$root/Tests/Fixtures/Templates" "$work/Fixtures/"
+beast new MyUi --path "$work/Projects" --template "$work/Fixtures/Templates/UIApplication"
+ui="$work/Projects/MyUi"
+check '[[ -f "$ui/Source/MyUi.Target.cs" && -f "$ui/Source/MyUiApp/MyUiApp.Build.cs" ]] && grep -q "class MyUiTarget" "$ui/Source/MyUi.Target.cs"' 'template placeholders in names/contents'
+check 'cmp -s "$ui/Source/MyUiApp/Assets/logo.bin" "$work/Fixtures/Templates/UIApplication/Source/{{ProjectIdentifier}}App/Assets/logo.bin"' 'binary template file changed'
+check 'grep -q "MyUi (template)" "$ui/Platforms/Android/app/src/main/res/values/strings.xml" && [[ -f "$ui/Platforms/Android/settings.gradle" ]]' 'Android: template file replaced or Gradle project not completed'
+check 'grep -q "\.\./\.\./Fixtures/Templates/UIApplication/\.\./\.\./External/SDK" "$ui/Config/BuildConfig.json"' '{{TemplateDirRelative}}'
+beast build "$ui" --config Debug
+"${tool[@]}" run "$ui" --no-build >"$work/ui.log" 2>&1 || { cat "$work/ui.log"; annotate 'template project run failed' "$work/ui.log"; exit 1; }
+check 'grep -q "MyUi template 42 22" "$work/ui.log"' 'project from the template (external SDK, resources)'
+check 'grep -q "^package com.beast.myui;" "$ui/Platforms/Android/app/src/main/java/com/beast/myui/GameActivity.java" && grep -q "template-activity" "$ui/Platforms/Android/app/src/main/java/com/beast/myui/GameActivity.java"' '{{AndroidPackage}}/{{AndroidPackagePath}}: template activity'
+check '! "${tool[@]}" new Bad --path "$work/Projects" --template "$work/Fixtures/Missing" >"$work/last.log" 2>&1 && [[ ! -e "$work/Projects/Bad" ]]' 'missing template accepted'
+pass 'custom templates (new --template)'
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -538,6 +557,18 @@ EOF2
     cp "$work/glue-nm.txt" "$work/last.log"
     check 'grep -q "T BeastNativeActivityOnCreate" "$work/glue-nm.txt"' 'native_app_glue not compiled from the NDK with its definition'
     pass 'Android APK with an external project (AndroidAssets, Resources, AndroidJavaSources: edit, removal; NDK native_app_glue)'
+    # Template project on Android: its GameActivity ({{AndroidPackagePath}}) is the APK's activity.
+    python3 - "$ui/Config/BuildConfig.json" "$sdk" "$ndk" "${JAVA_HOME:-}" <<'EOF2'
+import json, sys
+path, sdk, ndk, java = sys.argv[1:]
+c = json.load(open(path))
+c["android"] = {"sdkRoot": sdk, "ndkRoot": ndk, "javaHome": java, "abis": ["x86_64"]}
+json.dump(c, open(path, "w"), indent=2)
+EOF2
+    beast build "$ui" --platform Android --config Debug
+    unzip -p "$ui/Binaries/Android/Debug/MyUi.apk" 'classes*.dex' >"$work/ui.dex"
+    check 'grep -aq "Lcom/beast/myui/GameActivity;" "$work/ui.dex" && grep -aq "template-activity" "$work/ui.dex"' 'template activity is not the APK activity'
+    pass 'Android APK from a custom template (template GameActivity)'
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"
