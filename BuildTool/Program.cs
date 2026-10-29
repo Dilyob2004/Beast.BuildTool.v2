@@ -26,6 +26,7 @@ internal static class Program
                 "run" => await Run(commandLine),
                 "clean" => Clean(commandLine),
                 "test" => await Test(commandLine),
+                "watch" => await Watch(commandLine),
                 "install" => await Install(commandLine, package: false),
                 "package" => await Install(commandLine, package: true),
                 "worker" => await SharedQueueWorker.RunAsync(commandLine),
@@ -45,9 +46,7 @@ internal static class Program
     }
 
     /// <summary>Informational version: "2.0.0" (release tag) or "2.0.0-dev+&lt;commit&gt;".</summary>
-    internal static string Version =>
-        typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "unknown";
+    internal static string Version => BuildToolVersion.Informational;
 
     private static int CreateProject(CommandLine args)
     {
@@ -165,6 +164,20 @@ internal static class Program
         return (project, platforms, configuration, targets);
     }
 
+    /// <summary>watch: rebuilds on source changes until Ctrl+C (see Watcher).</summary>
+    private static async Task<int> Watch(CommandLine args)
+    {
+        var (project, platforms, configuration, targets) = Prepare(args, null);
+        if (targets.Count > 1) throw new ArgumentException("watch takes one --target.");
+        int debounce = int.TryParse(GetOptionalArgument(args, "debounce"), out int ms) && ms >= 0 ? ms : 300;
+        int? maxBuilds = int.TryParse(GetOptionalArgument(args, "max-builds"), out int max) && max > 0 ? max : null;
+        using var cancel = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+        var options = new Watcher.Options(project, platforms, configuration, targets.FirstOrDefault(), GetOptionalArgument(args, "on-success"),
+            args.HasFlag("versioned"), debounce, GetOptionalArgument(args, "device"), maxBuilds);
+        return await new Watcher(options).RunAsync(cancel.Token);
+    }
+
     private static async Task<int> Test(CommandLine args)
     {
         var (project, platforms, configuration, targets) = Prepare(args, null);
@@ -270,6 +283,8 @@ Beast BuildTool
   beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols] [--dmg [--notarize]]
+  beast watch [project-path] [--target <name>] [--platform ...] [--config ...] [--on-success "<command>"] [--versioned] [--device <serial>] [--debounce <ms>]
+        (rebuilds on changes in Source/ and Config/ of the project and its external projects; Ctrl+C stops)
   beast clean [project-path] [--target <name>]   (without --target: the whole Intermediate/Build)
 """);
         return 0;

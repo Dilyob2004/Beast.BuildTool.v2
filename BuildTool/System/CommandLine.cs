@@ -21,12 +21,12 @@ namespace Beast.BuildTool
 
         /// <summary>Options that never take a value: "--no-build Projects/App" keeps the path positional.</summary>
         public static readonly IReadOnlySet<string> BooleanFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "run", "wait", "no-build", "stop-on-error", "once", "help", "h", "verbose", "symbols", "dmg", "notarize" };
+            { "run", "wait", "no-build", "stop-on-error", "once", "help", "h", "verbose", "symbols", "dmg", "notarize", "versioned" };
 
         /// <summary>Every option the tool understands; others are reported as likely typos.</summary>
         public static readonly IReadOnlySet<string> KnownOptions = new HashSet<string>(BooleanFlags.Concat(new[]
             { "path", "project", "target", "platform", "arch", "config", "avd", "device", "queue", "project-root", "compiler-root",
-              "key-env", "idle-timeout", "reserve-mb", "prefix", "output" }), StringComparer.OrdinalIgnoreCase);
+              "key-env", "idle-timeout", "reserve-mb", "prefix", "output", "template", "on-success", "debounce", "max-builds" }), StringComparer.OrdinalIgnoreCase);
 
         public IEnumerable<string> UnknownOptions => _arguments.Keys.Concat(_flags).Where(k => !KnownOptions.Contains(k)).Distinct(StringComparer.OrdinalIgnoreCase);
 

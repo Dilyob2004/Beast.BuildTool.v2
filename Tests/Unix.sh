@@ -512,6 +512,62 @@ check 'grep -q "^package com.beast.myui;" "$ui/Platforms/Android/app/src/main/ja
 check '! "${tool[@]}" new Bad --path "$work/Projects" --template "$work/Fixtures/Missing" >"$work/last.log" 2>&1 && [[ ! -e "$work/Projects/Bad" ]]' 'missing template accepted'
 pass 'custom templates (new --template)'
 
+# watch: an initial build, a rebuild per source change (debounced), a failed build that keeps the
+# watch running, numbered copies of the shared library (--versioned) and --on-success with BEAST_*
+# variables; changes under Intermediate/ do not start builds.
+wp="$work/Watch"
+beast new Watch --path "$work"
+rm -rf "$wp/Source"
+project_saved="$project"; project="$wp"
+module WatchLib 'PublicIncludePaths.Add("Public");'
+put Source/WatchLib/Public/WatchLib.h '#pragma once
+WATCHLIB_API int WatchValue();'
+put Source/WatchLib/WatchLib.cpp '#include "WatchLib.h"
+int WatchValue() { return 1; }'
+module WatchApp 'PrivateDependencies.Add("WatchLib");'
+put Source/WatchApp/Main.cpp '#include "WatchLib.h"
+#include <cstdio>
+int main() { std::printf("watch %d\n", WatchValue()); return 0; }'
+target WatchLib 'Type = TargetType.SharedLibrary; Modules.Add("WatchLib");'
+target Watch 'Modules.Add("WatchApp"); TargetDependencies.Add("WatchLib");'
+project="$project_saved"
+hooks="$work/watch-hooks.txt"; : >"$hooks"
+"${tool[@]}" watch "$wp" --target Watch --config Debug --versioned --debounce 200 \
+    --on-success "echo \"\$BEAST_BUILD \$BEAST_TARGET \$BEAST_CONFIGURATION\" >> '$hooks'" >"$work/watch.log" 2>&1 & watch_pid=$!
+wait_for() { for _ in $(seq 1 240); do eval "$1" && return 0; sleep 0.5; done; cp "$work/watch.log" "$work/last.log"; return 1; }
+hot="$wp/Binaries/$platform/Debug/Hot"
+check 'wait_for "grep -q \"^1 Watch Debug\" \"$hooks\""' 'watch: initial build or --on-success'
+check '[[ -f "$hot/libWatchLib.1.$so" ]] && grep -qx "libWatchLib.1.$so" "$hot/libWatchLib.latest"' 'watch --versioned: numbered library'
+sleep 1
+put_watch() { printf '%s\n' "$2" >"$wp/$1"; }
+put_watch Source/WatchLib/WatchLib.cpp '#include "WatchLib.h"
+int WatchValue() { return 2; }'
+check 'wait_for "grep -q \"^2 Watch Debug\" \"$hooks\""' 'watch: no rebuild after a source change'
+check '[[ "$("$wp/Binaries/$platform/Debug/Watch")" == "watch 2" && -f "$hot/libWatchLib.2.$so" ]]' 'watch: rebuilt program/library'
+sleep 1
+put_watch Source/WatchLib/WatchLib.cpp 'int WatchValue() { return ; }'
+check 'wait_for "grep -q \"Build 3 failed\" \"$work/watch.log\""' 'watch: failed build not reported'
+check 'kill -0 $watch_pid && [[ $(wc -l <"$hooks") -eq 2 ]]' 'watch stopped after a failed build, or ran --on-success'
+sleep 1
+put_watch Source/WatchLib/WatchLib.cpp '#include "WatchLib.h"
+int WatchValue() { return 3; }'
+check 'wait_for "grep -q \"^4 Watch Debug\" \"$hooks\""' 'watch: no rebuild after the error was fixed'
+mkdir -p "$wp/Source/WatchApp/Intermediate"; touch "$wp/Source/WatchApp/Intermediate/ignored.txt" "$wp/Intermediate/ignored.txt"
+sleep 2
+check '! grep -q "Build 5" "$work/watch.log"' 'watch: Intermediate changes started a build'
+kill $watch_pid 2>/dev/null; wait $watch_pid 2>/dev/null || true
+pass 'watch (rebuilds, failed build, --versioned, --on-success)'
+
+# minimumBuildToolVersion: a project that needs a newer tool stops with a clear error.
+config_saved="$(cat "$wp/Config/BuildConfig.json")"
+python3 - "$wp/Config/BuildConfig.json" <<'EOF2'
+import json, sys
+c = json.load(open(sys.argv[1])); c["minimumBuildToolVersion"] = "99.0.0"; json.dump(c, open(sys.argv[1], "w"))
+EOF2
+check '! "${tool[@]}" build "$wp" --target Watch >"$work/last.log" 2>&1 && grep -q "needs Beast BuildTool 99.0.0 or newer" "$work/last.log"' 'minimumBuildToolVersion'
+printf '%s' "$config_saved" >"$wp/Config/BuildConfig.json"
+pass 'minimumBuildToolVersion'
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
