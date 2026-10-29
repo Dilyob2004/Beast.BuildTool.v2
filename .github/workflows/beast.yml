@@ -190,7 +190,7 @@ jobs:
             "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/emulator-avds.txt" 2>&1 || true
             "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
             echo "::notice title=android-install AVDs::avdmanager: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 500) | emulator -list-avds: $(tr '\n' ' ' <"$RUNNER_TEMP/emulator-avds.txt" | head -c 500)"
-            grep -qx beast_api34 "$RUNNER_TEMP/avds.txt" || { echo "::error title=android-install::avdmanager does not list beast_api34"; exit 1; }
+            grep -qx beast_api34 "$RUNNER_TEMP/emulator-avds.txt" || { echo "::error title=android-install::the emulator does not list beast_api34"; exit 1; }
           fi
           echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
 

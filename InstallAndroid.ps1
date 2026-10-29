@@ -147,7 +147,8 @@ try {
         $avdmanager = Join-Path $Dir 'cmdline-tools\latest\bin\avdmanager.bat'
         $env:ANDROID_HOME = $Dir; $env:ANDROID_SDK_ROOT = $Dir
         $ErrorActionPreference = 'Continue'
-        $existing = @(& $avdmanager list avd -c 2>$null)
+        # The emulator's own list ('run --avd' starts the AVD through it; avdmanager's list is less reliable).
+        $existing = @(& (Join-Path $Dir 'emulator\emulator.exe') -list-avds 2>$null)
         if ($Force -or $existing -notcontains $Avd) {
             # Quoted for cmd.exe (avdmanager.bat), which would split the package path at ';'.
             'no' | & $avdmanager create avd --force -n $Avd -k "`"$image`"" -d pixel_6 | Out-Null
