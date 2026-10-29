@@ -152,7 +152,9 @@ jobs:
           extra=(); [[ "$RUNNER_OS" == Linux ]] && extra=(--emulator)
           bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --force --no-profile "${extra[@]}" 2>&1 | tee "$RUNNER_TEMP/first.log"
           bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile "${extra[@]}" 2>&1 | tee "$RUNNER_TEMP/second.log"
-          if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then echo "::error title=InstallAndroid.sh::the second run downloaded again"; exit 1; fi
+          if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then
+            echo "::error title=InstallAndroid.sh::the second run downloaded again: $(grep -E 'Downloading|Installing:|AVD created|Already' "$RUNNER_TEMP/second.log" | tr '\n' ' ' | head -c 1500)"; exit 1
+          fi
           # The pinned sdkmanager works on its own: no Android CLI, no usage metrics, no deprecation warnings.
           if grep -iE "deprecat|Android CLI|metrics|no longer needed" "$RUNNER_TEMP/first.log" "$RUNNER_TEMP/second.log"; then
             echo "::error title=InstallAndroid.sh::deprecation/Android CLI/metrics message in the output"; exit 1
