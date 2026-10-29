@@ -157,6 +157,10 @@ if [[ $emulator == 1 ]]; then
     avdmanager="$tools_dir/bin/avdmanager"
     # Both variables: a stale ANDROID_SDK_ROOT (another SDK) would make avdmanager ignore this one.
     export ANDROID_HOME="$dir" ANDROID_SDK_ROOT="$dir"
+    # One AVD directory for avdmanager and the emulator: their defaults differ between versions
+    # (~/.android/avd or ~/.config/.android/avd); the profile below exports it too.
+    export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
+    mkdir -p "$ANDROID_AVD_HOME"
     # The emulator's own list ('run --avd' starts the AVD through it; avdmanager's list is less reliable).
     "$dir/emulator/emulator" -list-avds >"$work/avds.txt" 2>/dev/null || true
     if [[ $force == 1 ]] || ! grep -qx "$AVD" "$work/avds.txt"; then
@@ -175,6 +179,7 @@ if [[ $profile == 1 ]]; then
         *) rc="$HOME/.profile" ;;
     esac
     line="export ANDROID_HOME=\"$dir\"; export JAVA_HOME=\"$jdk\"; export PATH=\"\$ANDROID_HOME/platform-tools:\$PATH\""
+    [[ $emulator == 1 ]] && line="$line; export ANDROID_AVD_HOME=\"$ANDROID_AVD_HOME\""
     if ! grep -qsF "$line" "$rc"; then
         printf '\n# Android SDK and JDK (added by Beast InstallAndroid.sh)\n%s\n' "$line" >>"$rc"
         echo "Added ANDROID_HOME, JAVA_HOME and platform-tools to $rc (open a new terminal)."
@@ -185,6 +190,6 @@ echo "Beast uses (defaults from ANDROID_HOME and JAVA_HOME$([[ $profile == 0 ]] 
 echo "  android.sdkRoot  = $dir"
 echo "  android.ndkRoot  = $dir/ndk   (newest; this script installed $ndk)"
 echo "  android.javaHome = $jdk"
-[[ $emulator == 1 ]] && echo "  android.defaultAvd = $AVD"
+[[ $emulator == 1 ]] && echo "  android.defaultAvd = $AVD   (ANDROID_AVD_HOME=$ANDROID_AVD_HOME)"
 [[ $profile == 0 ]] && printf '\nConfig/BuildConfig.json:\n  "android": { "sdkRoot": "%s", "ndkRoot": "%s/ndk", "javaHome": "%s"%s }\n' "$dir" "$dir" "$jdk" "$([[ $emulator == 1 ]] && echo ", \"defaultAvd\": \"$AVD\"")"
 exit 0

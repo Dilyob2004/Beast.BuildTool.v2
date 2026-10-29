@@ -203,7 +203,7 @@ jobs:
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
             # The AVD as 'run --avd beast_api34' starts it: the emulator's own list.
-            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk"
+            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk" ANDROID_AVD_HOME="$HOME/.android/avd"
             "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/emulator-avds.txt" 2>&1 || true
             "$ANDROID_HOME/cmdline-tools/19.0/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
             echo "::notice title=android-install AVDs::avdmanager: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 500) | emulator -list-avds: $(tr '\n' ' ' <"$RUNNER_TEMP/emulator-avds.txt" | head -c 500)"

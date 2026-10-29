@@ -158,6 +158,9 @@ try {
     if ($Emulator) {
         $avdmanager = Join-Path $toolsDir 'bin\avdmanager.bat'
         $env:ANDROID_HOME = $Dir; $env:ANDROID_SDK_ROOT = $Dir
+        # One AVD directory for avdmanager and the emulator (their defaults differ between versions).
+        if (-not $env:ANDROID_AVD_HOME) { $env:ANDROID_AVD_HOME = Join-Path $env:USERPROFILE '.android\avd' }
+        New-Item -ItemType Directory -Force $env:ANDROID_AVD_HOME | Out-Null
         $ErrorActionPreference = 'Continue'
         # The emulator's own list ('run --avd' starts the AVD through it; avdmanager's list is less reliable).
         $existing = @(& (Join-Path $Dir 'emulator\emulator.exe') -list-avds 2>$null)
@@ -174,6 +177,7 @@ try {
     if (-not $NoProfile) {
         [Environment]::SetEnvironmentVariable('ANDROID_HOME', $Dir, 'User')
         [Environment]::SetEnvironmentVariable('JAVA_HOME', $jdk, 'User')
+        if ($Emulator) { [Environment]::SetEnvironmentVariable('ANDROID_AVD_HOME', $env:ANDROID_AVD_HOME, 'User') }
         $tools = Join-Path $Dir 'platform-tools'
         $entries = @(([Environment]::GetEnvironmentVariable('Path', 'User')) -split ';' | Where-Object { $_ })
         if ($entries -notcontains $tools) { [Environment]::SetEnvironmentVariable('Path', (@($entries) + $tools) -join ';', 'User') }
