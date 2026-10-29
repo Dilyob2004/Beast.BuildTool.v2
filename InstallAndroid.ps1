@@ -23,6 +23,14 @@ param(
     [switch]$NoProfile
 )
 $ErrorActionPreference = 'Stop'
+# In GitHub Actions a failure is also an annotation: the message and the failing line.
+trap {
+    if ($env:GITHUB_ACTIONS) {
+        $text = "$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)"
+        Write-Host ("::error title=InstallAndroid.ps1::" + ($text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'))
+    }
+    break
+}
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is many times slower with a progress bar
 $Platform = 'android-35'
 $BuildTools = '35.0.0'

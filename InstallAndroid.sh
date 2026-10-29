@@ -14,6 +14,8 @@
 # Licenses are accepted automatically (sdkmanager --licenses). Sources: dl.google.com (repository
 # catalogue, SHA-1 checked) and api.adoptium.net (Temurin, SHA-256 checked).
 set -euo pipefail
+# In GitHub Actions a failure is also an annotation: the failing command and its line.
+[[ -n "${GITHUB_ACTIONS:-}" ]] && trap 'echo "::error title=InstallAndroid.sh::line $LINENO: $BASH_COMMAND failed"' ERR
 NDK_DEFAULT=27.3.13750724
 PLATFORM=android-35
 BUILD_TOOLS=35.0.0
@@ -61,11 +63,14 @@ if [[ $force == 0 ]]; then
     done
 fi
 if [[ -z "$jdk" ]]; then
-    url="https://api.adoptium.net/v3/binary/latest/17/ga/$os/$arch/jdk/hotspot/normal/eclipse?project=jdk"
-    echo "Downloading Eclipse Temurin JDK 17 ($os $arch)..."
-    final="$(curl -fsSL --retry 3 -o "$work/jdk.tar.gz" -w '%{url_effective}' "$url")"
-    expected="$(curl -fsSL --retry 3 "$final.sha256.txt" | cut -d' ' -f1)"
-    [[ "$(sha 256 "$work/jdk.tar.gz")" == "$expected" ]] || { echo "JDK checksum mismatch ($final)"; exit 1; }
+    echo "Looking up Eclipse Temurin JDK 17 ($os $arch)..."
+    # The release's .tar.gz and its published .sha256.txt (GitHub release assets).
+    curl -fsSL --retry 3 -o "$work/jdk.json" "https://api.adoptium.net/v3/assets/latest/17/hotspot?os=$os&architecture=$arch&image_type=jdk&vendor=eclipse"
+    link="$(grep -oE '"link"[[:space:]]*:[[:space:]]*"[^"]+\.tar\.gz"' "$work/jdk.json" | head -n 1 | sed -E 's/.*"(https[^"]+)"$/\1/')" || true
+    [[ -n "$link" ]] || { echo "No Temurin JDK 17 .tar.gz for $os $arch in the Adoptium API answer"; exit 1; }
+    download "$link" "$work/jdk.tar.gz"
+    expected="$(curl -fsSL --retry 3 "$link.sha256.txt" | cut -d' ' -f1)"
+    [[ "$(sha 256 "$work/jdk.tar.gz")" == "$expected" ]] || { echo "JDK checksum mismatch ($link)"; exit 1; }
     mkdir -p "$work/jdk" && tar -xzf "$work/jdk.tar.gz" -C "$work/jdk"
     rm -rf "$jdk_dir"; mkdir -p "$(dirname "$jdk_dir")"
     mv "$work/jdk/"*/ "$jdk_dir"
