@@ -307,18 +307,26 @@ function WaitFor([scriptblock]$Condition, [string]$Message) {
     throw "$Message`n$((Get-Content (Join-Path $testRoot 'watch.log') | Where-Object { $_ -notmatch 'VisualStudioInstance' } | Select-Object -Last 40) -join "`n")"
 }
 try {
-    WaitFor { (Test-Path $hooks) -and ((Get-Content $hooks) -match '^1 Watch') } 'watch: initial build or --on-success'
+    # Build numbers depend on when Windows reports changes; the checks look at results.
+    WaitFor { (Test-Path $hooks) -and ((Get-Content $hooks) -match ' Watch\s*$') } 'watch: initial build or --on-success'
     $hot = Join-Path (Binaries 'Debug') 'Hot'
+    $latestMatches = {
+        $latest = Join-Path $hot 'WatchLib.latest'
+        (Test-Path $latest) -and ((Get-FileHash (Join-Path $hot (Get-Content $latest).Trim())).Hash -eq (Get-FileHash (Join-Path (Binaries 'Debug') 'WatchLib.dll')).Hash)
+    }
     Check (Test-Path (Join-Path $hot 'WatchLib.1.dll')) 'watch --versioned: WatchLib.1.dll'
+    # The program is not started while watching: a running Watch.exe would lock WatchLib.dll for the linker.
+    $dll = Join-Path (Binaries 'Debug') 'WatchLib.dll'
+    $firstHash = (Get-FileHash $dll).Hash
     Start-Sleep -Seconds 1
     Put 'Source/WatchLib/WatchLib.cpp' "#include `"WatchLib.h`"`nint WatchValue() { return 2; }`n"
-    WaitFor { (Get-Content $hooks) -match '^2 Watch' } 'watch: no rebuild after a source change'
-    Check ((Output (Join-Path (Binaries 'Debug') 'Watch.exe')) -eq 'watch 2') 'watch: rebuilt program'
-    Check (Test-Path (Join-Path $hot 'WatchLib.2.dll')) 'watch --versioned: WatchLib.2.dll'
+    WaitFor { ((Get-FileHash $dll).Hash -ne $firstHash) -and (& $latestMatches) -and @(Get-Content $hooks).Count -ge 2 } 'watch: no rebuild after a source change'
 } finally {
     if (-not $watch.HasExited) { Stop-Process -Id $watch.Id -Force }
     $project = $savedProject
 }
+Check ((Output (Join-Path $watchProject 'Binaries/Windows/Debug/Watch.exe')) -eq 'watch 2') 'watch: rebuilt program'
+
 Pass 'watch (rebuild, --versioned, --on-success)'
 
 # Package managers: a separate project each, so their manifests do not affect the tests above.

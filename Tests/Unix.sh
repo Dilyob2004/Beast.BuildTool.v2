@@ -536,25 +536,32 @@ hooks="$work/watch-hooks.txt"; : >"$hooks"
     --on-success "echo \"\$BEAST_BUILD \$BEAST_TARGET \$BEAST_CONFIGURATION\" >> '$hooks'" >"$work/watch.log" 2>&1 & watch_pid=$!
 wait_for() { for _ in $(seq 1 240); do eval "$1" && return 0; sleep 0.5; done; cp "$work/watch.log" "$work/last.log"; return 1; }
 hot="$wp/Binaries/$platform/Debug/Hot"
-check 'wait_for "grep -q \"^1 Watch Debug\" \"$hooks\""' 'watch: initial build or --on-success'
-check '[[ -f "$hot/libWatchLib.1.$so" ]] && grep -qx "libWatchLib.1.$so" "$hot/libWatchLib.latest"' 'watch --versioned: numbered library'
+app="$wp/Binaries/$platform/Debug/Watch"
+# Build numbers depend on when the OS reports changes (a change during a build starts another one), so
+# the checks look at results: the program's output, the hook's lines, the newest library copy.
+builds() { grep -c "\[watch\] Build [0-9]* (" "$work/watch.log" || true; }
+latest_matches() { local copy; copy="$(cat "$hot/libWatchLib.latest" 2>/dev/null)" && cmp -s "$hot/$copy" "$wp/Binaries/$platform/Debug/libWatchLib.$so"; }
+check 'wait_for "grep -q \" Watch Debug\$\" \"$hooks\""' 'watch: initial build or --on-success'
+check 'latest_matches && [[ -f "$hot/libWatchLib.1.$so" ]]' 'watch --versioned: numbered library'
 sleep 1
 put_watch() { printf '%s\n' "$2" >"$wp/$1"; }
 put_watch Source/WatchLib/WatchLib.cpp '#include "WatchLib.h"
 int WatchValue() { return 2; }'
-check 'wait_for "grep -q \"^2 Watch Debug\" \"$hooks\""' 'watch: no rebuild after a source change'
-check '[[ "$("$wp/Binaries/$platform/Debug/Watch")" == "watch 2" && -f "$hot/libWatchLib.2.$so" ]]' 'watch: rebuilt program/library'
+check 'wait_for "[[ \"\$(\"$app\")\" == \"watch 2\" ]] && latest_matches && [[ \$(wc -l <\"$hooks\") -ge 2 ]]"' 'watch: no rebuild after a source change'
 sleep 1
+hooks_before=$(wc -l <"$hooks")
 put_watch Source/WatchLib/WatchLib.cpp 'int WatchValue() { return ; }'
-check 'wait_for "grep -q \"Build 3 failed\" \"$work/watch.log\""' 'watch: failed build not reported'
-check 'kill -0 $watch_pid && [[ $(wc -l <"$hooks") -eq 2 ]]' 'watch stopped after a failed build, or ran --on-success'
+check 'wait_for "grep -q \"\[watch\] Build [0-9]* failed\" \"$work/watch.log\""' 'watch: failed build not reported'
 sleep 1
+check 'kill -0 $watch_pid && [[ $(wc -l <"$hooks") -eq $hooks_before ]]' 'watch stopped after a failed build, or ran --on-success for it'
 put_watch Source/WatchLib/WatchLib.cpp '#include "WatchLib.h"
 int WatchValue() { return 3; }'
-check 'wait_for "grep -q \"^4 Watch Debug\" \"$hooks\""' 'watch: no rebuild after the error was fixed'
+check 'wait_for "[[ \"\$(\"$app\")\" == \"watch 3\" ]] && latest_matches"' 'watch: no rebuild after the error was fixed'
+sleep 1
+builds_before=$(builds)
 mkdir -p "$wp/Source/WatchApp/Intermediate"; touch "$wp/Source/WatchApp/Intermediate/ignored.txt" "$wp/Intermediate/ignored.txt"
 sleep 2
-check '! grep -q "Build 5" "$work/watch.log"' 'watch: Intermediate changes started a build'
+check '[[ $(builds) -eq $builds_before ]]' 'watch: Intermediate changes started a build'
 kill $watch_pid 2>/dev/null; wait $watch_pid 2>/dev/null || true
 pass 'watch (rebuilds, failed build, --versioned, --on-success)'
 
