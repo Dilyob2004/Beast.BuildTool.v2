@@ -317,6 +317,24 @@ public sealed class ProjectModel
 
     public static string ResolvePath(ModuleRules module, string path) => Path.GetFullPath(path, module.ModuleDirectory);
 
+    /// <summary>
+    /// Intermediate/Beast/Include: headers Beast provides to every module (BeastResources.h), copied
+    /// from the tool's templates when they change, so the include path does not depend on where the
+    /// tool is installed.
+    /// </summary>
+    public static string BeastIncludeDirectory(string projectDirectory)
+    {
+        string directory = Path.Combine(projectDirectory, "Intermediate", "Beast", "Include");
+        string templates = Path.Combine(GlobalEnvironment.TemplatesPath, "Include");
+        if (Directory.Exists(templates))
+            foreach (string header in Directory.GetFiles(templates))
+            {
+                Directory.CreateDirectory(directory);
+                ModuleCompilation.WriteIfChanged(Path.Combine(directory, Path.GetFileName(header)), File.ReadAllText(header));
+            }
+        return directory;
+    }
+
     public CPPEnvironment CompileEnvironment(BuildTarget target, ModuleRules module, Platform platform, TargetConfiguration configuration)
     {
         var env = GenericProjectBuilder.CreateCppEnvironment(platform, configuration, target.Legacy ? Modules.Values : []);
@@ -338,6 +356,7 @@ public sealed class ProjectModel
         CompileOptions.Apply(env, target.Rules.CompileOptions, module.CompileOptions);
         env.PreprocessorDefinitions.AddRange(target.Rules.Definitions);
         env.IncludePaths.Add(Path.Combine(ProjectDirectory, "Source"));
+        env.IncludePaths.Add(BeastIncludeDirectory(ProjectDirectory));
         PackageManagers.ApplyCompile(this, platform, configuration, env);
         if (target.Legacy)
         {

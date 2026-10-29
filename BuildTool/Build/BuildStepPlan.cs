@@ -120,16 +120,27 @@ public sealed class BuildStepPlan
             if (outputs.TryGetValue(item.ModuleName, out var produced) && produced.Count > 0) environment.IncludePaths.Add(GeneratedDirectory(item));
     }
 
-    public void AddRuntimeCopies(CommandExecutor executor)
+    /// <summary>Files placed by Resources (after AddResourceCopies), below the resource root.</summary>
+    public List<string> ResourceOutputs { get; } = [];
+    private readonly Dictionary<string, string> copyDestinations = new(StringComparer.OrdinalIgnoreCase);
+
+    public void AddRuntimeCopies(CommandExecutor executor) =>
+        AddCopies(executor, modules.SelectMany(m => m.RuntimeDependencies.Select(i => (m, i))), binaries, "runtime file", RuntimeOutputs);
+
+    /// <summary>Copies Resources of the given modules below 'root' (inside Binaries).</summary>
+    public void AddResourceCopies(CommandExecutor executor, IEnumerable<ModuleRules> resourceModules, string root) =>
+        AddCopies(executor, resourceModules.SelectMany(m => m.Resources.Select(i => (m, i))), root, "resource", ResourceOutputs);
+
+    private void AddCopies(CommandExecutor executor, IEnumerable<(ModuleRules Module, RuntimeDependency Item)> items, string root, string kind, List<string> produced)
     {
-        var destinations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var module in modules)
-        foreach (var item in module.RuntimeDependencies)
+        var destinations = copyDestinations;
+        foreach (var (module, item) in items)
         {
             string source = Source(module, item.Source);
             string relative = item.Destination ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(source));
-            if (Path.IsPathRooted(relative) || string.IsNullOrWhiteSpace(relative)) throw new InvalidOperationException($"Runtime destination must be relative to Binaries: {relative}");
-            string destination = Path.GetFullPath(relative, binaries);
+            if (Path.IsPathRooted(relative) || string.IsNullOrWhiteSpace(relative)) throw new InvalidOperationException($"{kind} destination must be relative: {relative}");
+            string destination = Path.GetFullPath(relative, root);
+            ValidateOutput(root, Path.Combine(destination, ".beast-path-check"));
             ValidateOutput(binaries, Path.Combine(destination, ".beast-path-check"));
             if (Directory.Exists(source))
             {
@@ -161,8 +172,8 @@ public sealed class BuildStepPlan
                     return;
                 }
                 destinations.Add(output, input);
-                RuntimeOutputs.Add(output);
-                AddCopyCommand(executor, input, output, binaries, Path.Combine(build, "RuntimeStates"), $"Copying runtime file {Path.GetRelativePath(binaries, output)}...");
+                produced.Add(output);
+                AddCopyCommand(executor, input, output, binaries, Path.Combine(build, "RuntimeStates"), $"Copying {kind} {Path.GetRelativePath(binaries, output)}...");
             }
         }
     }

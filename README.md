@@ -81,7 +81,7 @@ public sealed class GameTarget : TargetRules
 | [Платформы](docs/platforms.md) | Windows, Linux, macOS (universal, `.dmg`), iOS, Android, санитайзеры, LTO |
 | [Модули C++20](docs/cpp-modules.md) | `.ixx`/`.cppm`, разделы, `import std`, IntelliSense |
 | [PCH и Unity Build](docs/compilation.md) | предкомпилированные заголовки и объединение единиц |
-| [Генерация кода и runtime-файлы](docs/build-steps.md) | шаги сборки, файлы рядом с программой и внутри APK |
+| [Генерация кода, ресурсы и runtime-файлы](docs/build-steps.md) | шаги сборки, ресурсы приложения для всех платформ, файлы рядом с программой и внутри APK |
 | [Тесты, установка и пакеты](docs/packaging.md) | `test`, `install`, `package`, CMake и pkg-config |
 | [vcpkg и Conan](docs/packages.md) | зависимости из пакетных менеджеров |
 | [IDE и редакторы](docs/ide.md) | Visual Studio, Xcode, VS Code, CLion, clangd |

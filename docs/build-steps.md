@@ -1,6 +1,7 @@
-# Генерация кода и runtime-файлы
+# Генерация кода, ресурсы и runtime-файлы
 
-Шаги генерации, копирование файлов рядом с продуктом и файлы внутри APK.
+Шаги генерации, ресурсы приложения (все платформы), копирование файлов рядом с продуктом и файлы
+внутри APK.
 
 В конструкторе модуля `*.Build.cs` можно объявить локальные шаги генерации:
 
@@ -76,6 +77,51 @@ symlink/junction в выходном пути отклоняются. Рекур
 ```powershell
 pwsh -File Tests/BuildSteps.ps1 -Android -AndroidSdk 'C:/Users/you/AppData/Local/Android/Sdk'
 ```
+
+## Ресурсы приложения (все платформы)
+
+Текстуры, звуки, уровни, конфиги — одно объявление в `*.Build.cs`, без условий по платформе:
+
+```csharp
+Resources.Add("Assets");                         // каталог модуля Assets -> Assets/...
+Resources.Add("Levels", "Assets/Levels");        // с другим назначением
+Resources.Add("{GeneratedDir}/atlas.bin", "Assets/atlas.bin");   // результат BuildStep
+```
+
+Beast кладёт их туда, где их ищет каждая платформа (назначение — относительно корня ресурсов):
+
+| Платформа | Корень ресурсов | `Assets/hero.png` оказывается в |
+|---|---|---|
+| Windows, Linux | каталог программы | `Binaries/<platform>/<config>/Assets/hero.png` |
+| macOS, `.app` (`ConsoleApplication = false`) | `X.app/Contents/Resources` | `Game.app/Contents/Resources/Assets/hero.png` |
+| macOS, консольная программа | каталог программы | рядом с программой |
+| iOS | корень `X.app` | `Game.app/Assets/hero.png` (подпись бандла включает ресурсы) |
+| Android | `assets/` APK | `assets/Assets/hero.png` |
+
+Ресурсы может объявлять и модуль цели-зависимости (библиотеки): они попадают в каждое приложение,
+которое от неё зависит. У самих библиотек ресурсы не копируются. Копирование инкрементально, как у
+`RuntimeDependencies`: копируются только изменённые файлы, удалённые из правил — удаляются из
+`Binaries`. `install`/`package` берут ресурсы вместе с программой (на macOS и iOS — внутри `.app`).
+
+Чтение — заголовок `BeastResources.h`, который Beast добавляет в include path каждого модуля
+(копия лежит в `Intermediate/Beast/Include`):
+
+```cpp
+#include "BeastResources.h"
+
+std::vector<std::byte> image;
+if (Beast::ReadResource("Assets/hero.png", image)) { /* ... */ }
+
+std::string config;
+Beast::ReadResource("Assets/config.json", config);          // текст
+
+std::string path = Beast::ResourcePath("Assets/music.ogg"); // полный путь (кроме Android)
+```
+
+Пути — относительные, с `/`, в UTF-8 (на Windows работают и не-ASCII имена). На Android файлы читаются
+из APK через `AAssetManager`: один раз при запуске вызовите
+`Beast::SetAssetManager(activity->assetManager)` — шаблон `beast new` уже делает это; `ResourcePath`
+там возвращает путь внутри APK. Старые `RuntimeDependencies` и `AndroidAssets` продолжают работать.
 
 ## Файлы внутри Android APK
 

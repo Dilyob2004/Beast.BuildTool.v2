@@ -40,6 +40,24 @@ c = json.load(open(path))
 c["android"].update({"sdkRoot": sdk, "ndkRoot": ndk, "javaHome": java, "abis": [abi]})
 json.dump(c, open(path, "w"), indent=2)
 EOF
+# Resources: Assets/greeting.txt goes into the APK's assets; the template's activity reads it through
+# BeastResources.h (AAssetManager) and logs it.
+mkdir -p "$project/Source/Launch/Assets"
+printf 'resource 42\n' >"$project/Source/Launch/Assets/greeting.txt"
+python3 - "$project/Source/Launch" <<'EOF2'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+rules = d / "Launch.Build.cs"; text = rules.read_text()
+rules.write_text(text.replace('Definitions.Add(', 'Resources.Add("Assets"); Definitions.Add(', 1))
+source = d / "Launch.cpp"; text = source.read_text()
+marker = "Beast::SetAssetManager(activity->assetManager);"
+assert marker in text
+source.write_text(text.replace(marker, marker + """
+    {
+        std::string text;
+        __android_log_print(ANDROID_LOG_INFO, "Droid", "resource: %s", Beast::ReadResource("Assets/greeting.txt", text) ? text.c_str() : "missing");
+    }""", 1))
+EOF2
 # Native tests: one passes (with its arguments), one fails with exit code 3.
 mkdir -p "$project/Source/DroidTests" "$project/Source/DroidFailing"
 cat >"$project/Source/DroidTests/DroidTests.Build.cs" <<'EOF'
@@ -72,6 +90,12 @@ EOF
 for _ in $(seq 1 30); do "$adb" logcat -d -s Droid:I >"$work/logcat.txt" 2>&1 || true; grep -q "Hello from Droid!" "$work/logcat.txt" && break; sleep 1; done
 grep -q "Hello from Droid!" "$work/logcat.txt" || fail "no 'Hello from Droid!' in logcat" "$work/logcat.txt"
 echo "PASS: APK installed and started, greeting in logcat"
+apk="$(find "$project/Binaries" -name 'Droid.apk' | head -n 1)"
+# (listing to a file: with pipefail, grep -q closing the pipe early would fail unzip with SIGPIPE)
+unzip -l "$apk" >"$work/apk.txt" || fail "cannot list $apk"
+grep -q "assets/Assets/greeting.txt" "$work/apk.txt" || fail "APK has no assets/Assets/greeting.txt" "$work/apk.txt"
+grep -q "resource: resource 42" "$work/logcat.txt" || fail "resource not read from the APK" "$work/logcat.txt"
+echo "PASS: resources in the APK, read with BeastResources.h"
 
 # test: executables pushed with adb and run on the device; the failing one fails the command.
 beast test "$project" --platform Android --target DroidTests
