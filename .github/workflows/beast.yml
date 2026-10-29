@@ -150,6 +150,7 @@ jobs:
           unset JAVA_HOME ANDROID_HOME ANDROID_SDK_ROOT
           extra=(); [[ "$RUNNER_OS" == Linux ]] && extra=(--emulator)
           bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --force --no-profile "${extra[@]}"
+          set -o pipefail
           bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile "${extra[@]}" | tee "$RUNNER_TEMP/second.log"
           if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then echo "::error title=InstallAndroid.sh::the second run downloaded again"; exit 1; fi
       - name: InstallAndroid.ps1
@@ -187,7 +188,7 @@ jobs:
             JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd >"$RUNNER_TEMP/avds.txt" 2>&1 || true
             cat "$RUNNER_TEMP/avds.txt"; ls -la ~/.android/avd 2>&1 || true
             if ! grep -q "Name: beast_api34" "$RUNNER_TEMP/avds.txt"; then
-              echo "::error title=android-install::AVD beast_api34 not listed: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500) | avd dir: $(ls ~/.android/avd 2>&1 | tr '\n' ' ')"
+              echo "::error title=android-install::AVD beast_api34 not listed: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500) | avd dir: $(ls ~/.android/avd 2>&1 | tr '\n' ' ') | env: $(env | grep -i 'android' | tr '\n' ' ') | ini: $(cat ~/.android/avd/beast_api34.ini | tr '\n' ' ') | config: $(grep -E 'image|abi|target|tag' ~/.android/avd/beast_api34.avd/config.ini | tr '\n' ' ') | sysdir: $(ls "$RUNNER_TEMP/android/system-images/android-34/google_apis/x86_64" 2>&1 | tr '\n' ' ')"
               exit 1
             fi
           fi
