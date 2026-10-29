@@ -96,7 +96,7 @@ public static class Installer
             bool universal = MacPlatform.IsUniversal(platforms);
             foreach (var platform in universal ? platforms.Take(1) : platforms)
             {
-                string manifestPath = InstallManifest.PathFor(Path.Combine(project, "Intermediate", "Build", platform.PlatformName, configuration.ToString(), name));
+                string manifestPath = InstallManifest.PathFor(ProjectModel.ExistingBuildDirectory(project, platform.PlatformName, configuration, name));
                 var manifest = JsonSerializer.Deserialize<InstallManifest>(File.ReadAllText(manifestPath))
                     ?? throw new InvalidDataException($"Invalid install manifest: {manifestPath}");
                 if (universal)
@@ -281,7 +281,8 @@ public static class Installer
         ProjectModel model;
         using (ProjectBuildLock.AcquireAsync(project).GetAwaiter().GetResult()) model = ProjectModel.Load(project, platform, configuration);
         if (requested.Count > 0) return requested.Select(n => model.SelectTarget(n).Name).ToList();
-        return model.Targets.Where(t => tests ? t.Rules.IsTest && t.Rules.Type == TargetType.Application : !t.Rules.IsTest).Select(t => t.Name).ToList();
+        // Without --target: the project's own targets (an external project's libraries are installed only on request).
+        return model.OwnTargets.Where(t => tests ? t.Rules.IsTest && t.Rules.Type == TargetType.Application : !t.Rules.IsTest).Select(t => t.Name).ToList();
     }
 
     private static string Copy(string source, string destination, bool headers = false)

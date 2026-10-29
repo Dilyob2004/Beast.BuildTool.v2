@@ -20,7 +20,8 @@ public sealed class BuildStepPlan
     public string GeneratedDirectory(ModuleRules module) => Path.Combine(build, "Generated", module.ModuleName, "Custom");
     public string Expand(ModuleRules module, string value)
     {
-        var tokens = new Dictionary<string, string> { ["ProjectDir"] = project, ["ModuleDir"] = module.ModuleDirectory,
+        // {ProjectDir} is the root of the module's own project: an external project's modules refer to it.
+        var tokens = new Dictionary<string, string> { ["ProjectDir"] = module.ProjectDirectory.Length > 0 ? module.ProjectDirectory : project, ["ModuleDir"] = module.ModuleDirectory,
             ["GeneratedDir"] = GeneratedDirectory(module), ["BuildDir"] = build, ["BinaryDir"] = binaries,
             ["Platform"] = platform, ["Configuration"] = configuration, ["TargetName"] = target };
         return Regex.Replace(value, @"\{(ProjectDir|ModuleDir|GeneratedDir|BuildDir|BinaryDir|Platform|Configuration|TargetName)\}", m => tokens[m.Groups[1].Value]);

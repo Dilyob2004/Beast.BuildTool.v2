@@ -9,6 +9,14 @@ public sealed class BuildConfig
     [JsonPropertyName("defaultConfiguration")]
     public string DefaultConfiguration { get; set; } = "Debug";
 
+    /// <summary>
+    /// Other Beast projects whose targets and modules this project uses: their Source/*.Target.cs
+    /// targets can be TargetDependencies, their modules Public/PrivateDependencies. Paths are relative
+    /// to this project's root or absolute; %VAR% / $VAR are expanded.
+    /// </summary>
+    [JsonPropertyName("externalProjects")]
+    public List<ExternalProjectConfig> ExternalProjects { get; set; } = [];
+
     [JsonPropertyName("defaultPlatform")]
     public string DefaultPlatform { get; set; } = "Windows";
 
@@ -45,6 +53,13 @@ public sealed class BuildConfig
 
     [JsonPropertyName("ios")]
     public IosBuildConfig Ios { get; set; } = new();
+}
+
+/// <summary>An external project: a name (used in messages and Intermediate/.../External/&lt;name&gt;) and its root.</summary>
+public sealed class ExternalProjectConfig
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("path")] public string Path { get; set; } = "";
 }
 
 /// <summary>iOS devices and the iOS Simulator (Xcode).</summary>

@@ -203,14 +203,19 @@ internal static class Program
         if (target.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || target is "." or "..") return Usage($"Invalid target name '{target}'.");
         // One target, every platform and configuration: Intermediate/Build/<platform>/<configuration>/<target>.
         using var sharedLock = ProjectBuildLock.AcquireBuildAsync(project, exclusive: false).GetAwaiter().GetResult();
+        // An external project's target: Intermediate/Build/<platform>/<configuration>/External/<project>/<target>.
         var directories = Directory.Exists(intermediate)
             ? Directory.GetDirectories(intermediate).SelectMany(Directory.GetDirectories)
                 .Where(d => Enum.TryParse<TargetConfiguration>(Path.GetFileName(d), true, out _))
-                .Select(d => Path.Combine(d, target)).Where(Directory.Exists).ToList()
+                .Select(d => ProjectModel.ExistingBuildDirectory(project, Path.GetFileName(Path.GetDirectoryName(d))!, Enum.Parse<TargetConfiguration>(Path.GetFileName(d), true), target))
+                .Where(Directory.Exists).ToList()
             : [];
         using var targetLocks = ProjectBuildLock.AcquireTargetsAsync(project, directories.Select(d =>
-            GenericProjectBuilder.TargetLockName(Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(d))!), Enum.Parse<TargetConfiguration>(Path.GetFileName(Path.GetDirectoryName(d))!, true), target)))
-            .GetAwaiter().GetResult();
+        {
+            string configurationDirectory = Path.GetFileName(Path.GetDirectoryName(d)!) is var parent && Enum.TryParse<TargetConfiguration>(parent, true, out _)
+                ? Path.GetDirectoryName(d)! : Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(d)!)!)!;
+            return GenericProjectBuilder.TargetLockName(Path.GetFileName(Path.GetDirectoryName(configurationDirectory))!, Enum.Parse<TargetConfiguration>(Path.GetFileName(configurationDirectory), true), target);
+        })).GetAwaiter().GetResult();
         foreach (string directory in directories) Directory.Delete(directory, true);
         Log.TraceInfo(directories.Count == 0 ? $"Nothing to clean for target {target}." : $"Cleaned target {target}: {string.Join(", ", directories)}");
         return 0;

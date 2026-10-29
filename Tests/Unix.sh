@@ -264,7 +264,8 @@ if [[ $os == Mac ]]; then
     check '[[ "$(arch -x86_64 "$uni/Viewer.app/Contents/MacOS/Viewer")" == "viewer 42" ]]' 'x86_64 slice does not run (Rosetta)'
     beast package "$project" --target Viewer,Engine --arch universal --dmg
     dmg="$project/Binaries/Packages/Demo-MacUniversal-Release.dmg"
-    check '[[ -f "$dmg" ]] && hdiutil verify "$dmg" >/dev/null 2>&1' 'disk image missing or invalid'
+    # hdiutil verify sometimes fails transiently on CI runners (resource busy): up to three tries.
+    check '[[ -f "$dmg" ]] && { hdiutil verify "$dmg" >/dev/null 2>&1 || { sleep 3; hdiutil verify "$dmg" >/dev/null 2>&1; } || { sleep 5; hdiutil verify "$dmg" >"$work/last.log" 2>&1; }; }' 'disk image missing or invalid'
     mount="$work/dmg"; mkdir -p "$mount"
     hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
     ok=1
@@ -466,6 +467,32 @@ else
     pass 'IDE files (.vscode)'
 fi
 
+# External projects (Tests/Fixtures/External): AppA and AppB use the SDK project's static library
+# target through externalProjects. Both build in parallel; the SDK tree stays clean; an SDK header
+# edit rebuilds the SDK and the application; clean --target SDK removes the application's copy.
+ext="$work/External"
+cp -R "$root/Tests/Fixtures/External" "$ext"
+"${tool[@]}" build "$ext/AppA" --config Debug >"$work/ext-a.log" 2>&1 & pa=$!
+"${tool[@]}" build "$ext/AppB" --config Debug >"$work/ext-b.log" 2>&1 & pb=$!
+wait $pa || { cat "$work/ext-a.log"; annotate 'external project: AppA build failed' "$work/ext-a.log"; exit 1; }
+wait $pb || { cat "$work/ext-b.log"; annotate 'external project: AppB build failed' "$work/ext-b.log"; exit 1; }
+for app in AppA AppB; do
+    "${tool[@]}" run "$ext/$app" --no-build >"$work/ext-run.log" 2>&1 || { cat "$work/ext-run.log"; annotate "$app run failed" "$work/ext-run.log"; exit 1; }
+    check 'grep -q "$app 42 1 1 resource" "$work/ext-run.log"' "$app output (external modules, Source/ include path, {ProjectDir}, resources)"
+    check '[[ -d "$ext/$app/Intermediate/Build/$platform/Debug/External/SDK/SDK" ]]' "$app: SDK not built under Intermediate/.../External/SDK"
+done
+check '[[ ! -e "$ext/SDK/Intermediate" && ! -e "$ext/SDK/Binaries" ]]' 'build files were written into the external project'
+beast build "$ext/AppA" --config Debug
+check '! grep -qE "Done: [1-9][0-9]* executed" "$work/last.log"' 'no-op build of an application with an external project did work'
+sed -i.bak 's/#define SDK_VERSION 1/#define SDK_VERSION 2/' "$ext/SDK/Source/Core/Public/SdkCore.h" && rm -f "$ext/SDK/Source/Core/Public/SdkCore.h.bak"
+beast build "$ext/AppA" --config Debug
+check 'grep -q "Core.cpp" "$work/last.log" && grep -q "Main.cpp" "$work/last.log"' 'SDK header edit did not recompile the SDK and the application'
+"${tool[@]}" run "$ext/AppA" --no-build >"$work/ext-run.log" 2>&1
+check 'grep -q "AppA 43 2 1 resource" "$work/ext-run.log"' 'application not rebuilt after the SDK header edit'
+beast clean "$ext/AppA" --target SDK
+check '[[ ! -d "$ext/AppA/Intermediate/Build/$platform/Debug/External/SDK/SDK" ]]' 'clean --target SDK left the external build'
+pass 'external projects (parallel consumers, clean external tree, header edit, clean)'
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -479,6 +506,19 @@ if [[ "${1:-}" == --android ]]; then
         check 'unzip -l "$apk" | grep -q "lib/$abi/libGame.so" && unzip -l "$apk" | grep -q "lib/$abi/libEngine.so"' "APK lacks $abi libraries"
     done
     pass 'Android APK (arm64-v8a + x86_64, C++20 modules, shared dependency target)'
+    # External project on Android: the SDK's AndroidAssets and Resources reach the application's APK.
+    python3 - "$ext/AppA/Config/BuildConfig.json" "$sdk" "$ndk" "${JAVA_HOME:-}" <<'EOF2'
+import json, sys
+path, sdk, ndk, java = sys.argv[1:]
+c = json.load(open(path))
+c["android"] = {"sdkRoot": sdk, "ndkRoot": ndk, "javaHome": java, "abis": ["x86_64"]}
+json.dump(c, open(path, "w"), indent=2)
+EOF2
+    beast build "$ext/AppA" --platform Android --config Debug
+    eapk="$ext/AppA/Binaries/Android/Debug/AppA.apk"
+    unzip -l "$eapk" >"$work/ext-apk.txt"
+    check 'grep -q "assets/SDK/widgets.txt" "$work/ext-apk.txt" && grep -q "assets/Assets/SDK/sdk.txt" "$work/ext-apk.txt"' 'external project files missing from the APK'
+    pass 'Android APK with an external project (AndroidAssets, Resources)'
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"

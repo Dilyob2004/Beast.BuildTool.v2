@@ -187,6 +187,61 @@ Test("Visual Studio generation", () =>
     Check(engine.Contains(@"Source\Core\Android\CoreAndroid.cpp") && engine.Contains(@"Source\Render\Render.cpp"), "Engine sources");
 });
 
+Test("external projects", () =>
+{
+    // SDK: static library target SDK (Widgets -> Core); App uses it through externalProjects.
+    string sdk = Path.Combine(root, "Ext", "SDK"), app = Path.Combine(root, "Ext", "App");
+    Write(Path.Combine(sdk, "Source", "Core", "Core.Build.cs"), Module("Core",
+        "PublicDefinitions.Add(\"SDK_NAME_\" + info.ExternalProjectName); PrivateIncludePaths.Add(info.ProjectSourceDirectory!);"));
+    Write(Path.Combine(sdk, "Source", "Core", "Core.cpp"), "");
+    Write(Path.Combine(sdk, "Source", "Widgets", "Widgets.Build.cs"), Module("Widgets", "PublicDependencies.Add(\"Core\"); Resources.Add(\"{ProjectDir}/Data\");"));
+    Write(Path.Combine(sdk, "Source", "Widgets", "Widgets.cpp"), "");
+    Write(Path.Combine(sdk, "Source", "SDK.Target.cs"), Target("SDK", "Type = TargetType.StaticLibrary; Modules.Add(\"Widgets\");"));
+    Write(Path.Combine(app, "Config", "BuildConfig.json"), "{}");
+    Write(Path.Combine(app, "Source", "Main", "Main.Build.cs"), Module("Main", "PrivateDependencies.Add(\"Widgets\");"));
+    Write(Path.Combine(app, "Source", "Main", "Main.cpp"), "");
+    Write(Path.Combine(app, "Source", "App.Target.cs"), Target("App", "Modules.Add(\"Main\"); TargetDependencies.Add(\"SDK\");"));
+    var externals = new List<ExternalProjectConfig> { new() { Name = "SDK", Path = "../SDK" } };
+    var model = ProjectModel.Load(app, arm64, TargetConfiguration.Debug, externals);
+    Check(model.Externals.Single().Directory == sdk, "external directory");
+    var sdkTarget = model.Targets.Single(t => t.Name == "SDK");
+    Check(sdkTarget.ExternalProject == "SDK" && model.SelectTarget(null).Name == "App" && model.OwnTargets.Count == 1, "targets");
+    Check(model.BuildDirectory(arm64.PlatformName, TargetConfiguration.Debug, "SDK") ==
+        Path.Combine(app, "Intermediate", "Build", arm64.PlatformName, "Debug", "External", "SDK", "SDK"), "external build directory");
+    var core = model.Modules["Core"];
+    Check(core.ProjectDirectory == sdk && core.ExternalProject == "SDK" && core.PublicDefinitions.Contains("SDK_NAME_SDK"), "ModulesInfo inside external rules");
+    Check(core.PrivateIncludePaths.Contains(Path.Combine(sdk, "Source")), "info.ProjectSourceDirectory of the external project");
+    Check(model.OwnModules(model.SelectTarget(null)).Select(m => m.ModuleName).SequenceEqual(new[] { "Main" }), "SDK modules are compiled by the SDK target");
+    var main = model.CompileEnvironment(model.SelectTarget(null), model.Modules["Main"], arm64, TargetConfiguration.Debug);
+    Check(main.IncludePaths.Contains(Path.Combine(app, "Source")) && main.IncludePaths.Contains(Path.Combine(sdk, "Source")), "consumer sees the external Source/");
+    Check(main.PreprocessorDefinitions.Contains("SDK_NAME_SDK"), "public definitions of external modules");
+    var widgets = model.CompileEnvironment(sdkTarget, model.Modules["Widgets"], arm64, TargetConfiguration.Debug);
+    Check(widgets.IncludePaths.Contains(Path.Combine(sdk, "Source")) && !widgets.IncludePaths.Contains(Path.Combine(app, "Source")), "external modules do not see the application's Source/");
+    var plan = new BuildStepPlan(app, model.BuildDirectory(arm64.PlatformName, TargetConfiguration.Debug, "SDK"), Path.Combine(app, "Binaries"), "P", "Debug", "SDK", []);
+    Check(plan.Expand(model.Modules["Widgets"], "{ProjectDir}") == sdk, "{ProjectDir} of an external module");
+
+    // Name conflicts, missing projects and recursion through the external project's own config.
+    Write(Path.Combine(app, "Source", "Core", "Core.Build.cs"), Module("Core"));
+    Expect(() => ProjectModel.Load(app, arm64, TargetConfiguration.Debug, externals), "external project 'SDK'");
+    File.Delete(Path.Combine(app, "Source", "Core", "Core.Build.cs"));
+    Expect(() => ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "../Missing" }]), "not found");
+    string shared = Path.Combine(root, "Ext", "Shared");
+    Write(Path.Combine(shared, "Source", "Util", "Util.Build.cs"), Module("Util"));
+    Write(Path.Combine(shared, "Source", "Util", "Util.cpp"), "");
+    Write(Path.Combine(sdk, "Config", "BuildConfig.json"), "{ \"externalProjects\": [ { \"name\": \"Shared\", \"path\": \"../Shared\" } ] }");
+    var nested = ProjectModel.Load(app, arm64, TargetConfiguration.Debug, externals);
+    Check(nested.Externals.Select(e => e.Name).SequenceEqual(new[] { "Shared", "SDK" }) && nested.Modules["Util"].ExternalProject == "Shared", "external projects of external projects");
+    Environment.SetEnvironmentVariable("BEAST_TEST_SDK", sdk);
+    Check(ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "%BEAST_TEST_SDK%" }]).Externals.Any(e => e.Directory == sdk), "%VAR% in the path");
+
+    // Visual Studio: the SDK target gets a project; its sources appear under External\SDK.
+    BuildConfigManager.Config.ExternalProjects = externals;
+    try { SolutionGenerator.Generate(app, "App", arm64, x64, arm64); }
+    finally { BuildConfigManager.Config.ExternalProjects = []; }
+    Check(File.Exists(Path.Combine(app, "SDK.vcxproj")) && File.ReadAllText(Path.Combine(app, "App.sln")).Contains("SDK.vcxproj"), "SDK.vcxproj");
+    Check(File.ReadAllText(Path.Combine(app, "App.vcxproj.filters")).Contains(@"External\SDK\Source\Widgets"), "external sources in filters");
+});
+
 Test("Xcode and VS Code generation", () =>
 {
     // The Android platform stands in for macOS: generation only lists targets and paths.

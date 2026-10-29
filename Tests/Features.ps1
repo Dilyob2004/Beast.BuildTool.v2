@@ -22,10 +22,16 @@ function Beast([string[]]$Arguments) {
 }
 # In GitHub Actions the failure is also reported as an annotation (readable without the job log).
 trap {
-    if ($env:GITHUB_ACTIONS) { Write-Host ("::error title=Features.ps1::" + ("$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)" -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A')) }
+    if ($env:GITHUB_ACTIONS) {
+        $text = "$($_.Exception.Message)`n$($_.InvocationInfo.PositionMessage)"
+        if ($text.Length -gt 4000) { $text = $text.Substring(0, 4000) + '...' }
+        Write-Host ("::error title=Features.ps1::" + ($text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'))
+    }
     break
 }
 function Check([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
+# Progress is also an annotation: a failure without an exception (a native exit code) shows how far the script got.
+function Pass([string]$Message) { Write-Host "PASS: $Message"; if ($env:GITHUB_ACTIONS) { Write-Host "::notice title=Features.ps1::$Message" } }
 function Skip([string]$Message) { Write-Host "SKIP: $Message"; $script:skipped += $Message }
 function Put([string]$Path, [string]$Text) {
     $full = Join-Path $project $Path
@@ -104,21 +110,21 @@ foreach ($configuration in @('Debug', 'Release')) {
 $commands = Get-Content (Join-Path $project 'compile_commands.json') -Raw
 Check ($commands.Contains('/GL')) 'LinkTimeOptimization: /GL missing from Release compile commands'
 Check ($commands.Contains('CORE_API=__declspec(dllimport)')) 'CORE_API is not dllimport in Game'
-Write-Host 'PASS: target dependencies, dllimport, LTO'
+Pass 'target dependencies, dllimport, LTO'
 
 # run --platform Windows starts the EXE; its exit code is Beast's.
 & $tool run $project --platform Windows --target Game --config Debug --no-build
 Check ($LASTEXITCODE -eq 0) 'run --platform Windows failed'
 & $tool build $project --target Game --config Debug --run
 Check ($LASTEXITCODE -eq 0) 'build --run failed'
-Write-Host 'PASS: run'
+Pass 'run'
 
 # test: CoreTests receives TestArguments; a failing test fails the command.
 Beast @('test', $project, '--target', 'CoreTests')
 $log = (& $tool test $project --target 'CoreTests,FailingTests' 2>&1 | Out-String)
 Check ($LASTEXITCODE -ne 0) 'Failing test target reported success'
 Check ($log.Contains('FailingTests')) 'Failing test not reported'
-Write-Host 'PASS: test'
+Pass 'test'
 
 # install / package: Release by default.
 $prefix = Join-Path $testRoot 'Install'
@@ -134,7 +140,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($zip)
 try { $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') }) } finally { $archive.Dispose() }
 Check ($entries -contains 'bin/Game.exe' -and $entries -contains 'bin/Engine.dll') 'package: zip content'
-Write-Host 'PASS: install, package'
+Pass 'install, package'
 
 # The installed Engine is usable from CMake: find_package(Engine) + Engine::Engine (dllimport, import library).
 if (Get-Command cmake -ErrorAction SilentlyContinue) {
@@ -148,7 +154,7 @@ if (Get-Command cmake -ErrorAction SilentlyContinue) {
     Check ($LASTEXITCODE -eq 0) 'CMake consumer build failed'
     $env:PATH = (Join-Path $prefix 'bin') + ';' + $env:PATH
     Check ((Output (Join-Path $consumer 'build/Release/consumer.exe')) -eq '42') 'CMake consumer output'
-    Write-Host 'PASS: CMake package'
+    Pass 'CMake package'
 } else { Skip 'CMake consumer: cmake is not on PATH' }
 
 # AddressSanitizer (MSVC): the runtime DLL is copied next to the EXE.
@@ -156,15 +162,15 @@ Beast @('build', $project, '--target', 'Asan', '--config', 'Debug')
 $bin = Binaries 'Debug'
 Check (@(Get-ChildItem $bin -Filter 'clang_rt.asan*.dll').Count -gt 0) 'ASan runtime DLL not copied'
 Check ((Output (Join-Path $bin 'Asan.exe')) -eq 'asan 16') 'ASan build does not run'
-Write-Host 'PASS: AddressSanitizer (MSVC)'
+Pass 'AddressSanitizer (MSVC)'
 
 Beast @('build', $project, '--target', 'AsmDemo', '--config', 'Debug')
 Check ((Output (Join-Path $bin 'AsmDemo.exe')) -eq '42') 'MASM object not linked'
-Write-Host 'PASS: MASM'
+Pass 'MASM'
 
 Beast @('build', $project, '--target', 'ModDemo', '--config', 'Debug')
 Check ((Output (Join-Path $bin 'ModDemo.exe')) -eq '42') 'C++20 module program output'
-Write-Host 'PASS: C++20 modules (MSVC)'
+Pass 'C++20 modules (MSVC)'
 
 # import std (MSVC modules/std.ixx): a module exported by a static library uses std; the program
 # imports std and that module; std is built once, by the library target.
@@ -176,7 +182,7 @@ Put 'Source/StdMain/Main.cpp' "import std;`nimport StdText;`nint main() { std::c
 Target 'StdDemo' 'Modules.Add("StdMain"); TargetDependencies.Add("StdTextLib"); CppVersion = CppVersion.Latest;'
 Beast @('build', $project, '--target', 'StdDemo', '--config', 'Debug')
 Check ((Output (Join-Path $bin 'StdDemo.exe')) -eq 'Hello, std!') 'import std program output'
-Write-Host 'PASS: import std (MSVC)'
+Pass 'import std (MSVC)'
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $vs = if (Test-Path $vswhere) { (& $vswhere -latest -products * -property installationPath | Select-Object -First 1) } else { $null }
@@ -194,7 +200,7 @@ if ($arm64) {
         Check ($reader.ReadUInt16() -eq 0xAA64) 'Game.exe is not an ARM64 image'
     } finally { $stream.Dispose() }
     if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { Check ((Output (Join-Path $armBin 'Game.exe')) -eq '42') 'ARM64 Game output' }
-    Write-Host 'PASS: Windows ARM64'
+    Pass 'Windows ARM64'
 } else { Skip 'ARM64: MSVC ARM64 build tools are not installed' }
 
 # clang-cl: same project, compiler switched in Config/BuildConfig.json.
@@ -207,7 +213,7 @@ if ($clang) {
         Check ((Get-Content (Join-Path $project 'compile_commands.json') -Raw).Contains('clang-cl')) 'clang-cl not used'
         Beast @('build', $project, '--target', 'Asan', '--config', 'Debug')
         Check ((Output (Join-Path (Binaries 'Debug') 'Asan.exe')) -eq 'asan 16') 'clang-cl ASan build does not run'
-        Write-Host 'PASS: clang-cl (+ ASan)'
+        Pass 'clang-cl (+ ASan)'
     } finally { SetConfig { param($c) $c.windows.compiler = 'msvc' } }
 } else { Skip 'clang-cl: C++ Clang tools for Windows are not installed' }
 
@@ -231,7 +237,41 @@ Target 'Res' 'Modules.Add("ResApp"); TargetDependencies.Add("ResDataLib");'
 Beast @('build', $project, '--target', 'Res', '--config', 'Debug')
 Check (Test-Path (Join-Path (Binaries 'Debug') 'Assets/Data/level.txt')) 'resources of the dependency target not copied'
 Check ((Output (Join-Path (Binaries 'Debug') 'Res.exe')) -eq 'resource 42|level 7|unicode') 'resources not read by BeastResources.h'
-Write-Host 'PASS: resources (next to the EXE, dependency target, non-ASCII name)'
+Pass 'resources (next to the EXE, dependency target, non-ASCII name)'
+
+# External projects (Tests/Fixtures/External): AppA and AppB link the SDK project's static library
+# target; both build at the same time, the SDK tree stays clean, an SDK header edit rebuilds both
+# sides, and the Visual Studio solution contains the SDK target and its sources.
+$ext = Join-Path $testRoot 'External'
+Copy-Item -Recurse (Join-Path $PSScriptRoot 'Fixtures/External') $ext
+$jobs = foreach ($app in 'AppA', 'AppB') {
+    $process = Start-Process -FilePath $tool -ArgumentList @('build', "`"$(Join-Path $ext $app)`"", '--config', 'Debug') -NoNewWindow -PassThru `
+        -RedirectStandardOutput (Join-Path $testRoot "$app.log") -RedirectStandardError (Join-Path $testRoot "$app.err")
+    $null = $process.Handle   # keeps the handle, so ExitCode is available after the process ends
+    [pscustomobject]@{ App = $app; Process = $process }
+}
+foreach ($job in $jobs) {
+    $job.Process.WaitForExit()
+    if ($job.Process.ExitCode -ne 0) {
+        $tail = (Get-Content (Join-Path $testRoot "$($job.App).log") | Where-Object { $_ -notmatch ' Verbose ' } | Select-Object -Last 30) -join "`n"
+        throw "external project: $($job.App) build failed (exit $($job.Process.ExitCode))`n$tail"
+    }
+}
+foreach ($app in 'AppA', 'AppB') {
+    $output = Output (Join-Path $ext "$app/Binaries/Windows/Debug/$app.exe")
+    Check ($output -eq "$app 42 1 1 resource") "$app output: $output"
+    Check (Test-Path (Join-Path $ext "$app/Intermediate/Build/Windows/Debug/External/SDK/SDK")) "${app}: SDK not built under External/SDK"
+}
+Check (-not (Test-Path (Join-Path $ext 'SDK/Intermediate')) -and -not (Test-Path (Join-Path $ext 'SDK/Binaries'))) 'build files were written into the external project'
+$header = Join-Path $ext 'SDK/Source/Core/Public/SdkCore.h'
+[IO.File]::WriteAllText($header, ([IO.File]::ReadAllText($header) -replace 'SDK_VERSION 1', 'SDK_VERSION 2'))
+Beast @('build', (Join-Path $ext 'AppA'), '--config', 'Debug')
+Check ((Output (Join-Path $ext 'AppA/Binaries/Windows/Debug/AppA.exe')) -eq 'AppA 43 2 1 resource') 'AppA not rebuilt after the SDK header edit'
+Beast @('generate', (Join-Path $ext 'AppA'))
+Check (Test-Path (Join-Path $ext 'AppA/SDK.vcxproj')) 'no SDK.vcxproj in the solution'
+Check ((Get-Content (Join-Path $ext 'AppA/AppA.vcxproj.filters') -Raw) -match 'External\\SDK\\Source\\Widgets') 'SDK sources missing from the filters'
+Check ((Get-Content (Join-Path $ext 'AppA/AppA.sln') -Raw) -match 'SDK.vcxproj') 'SDK.vcxproj missing from the solution'
+Pass 'external projects (parallel consumers, clean external tree, header edit, Visual Studio)'
 
 # Package managers: a separate project each, so their manifests do not affect the tests above.
 function PackageProject([string]$Name) {
@@ -250,7 +290,7 @@ else {
         Put 'vcpkg.json' '{ "name": "vcpkgdemo", "version": "1.0.0", "dependencies": [ "fmt" ] }'
         Beast @('build', $project, '--target', 'VcpkgDemo', '--config', 'Debug')
         Check ((Output (Join-Path (Binaries 'Debug') 'VcpkgDemo.exe')) -eq '42') 'vcpkg fmt program output'
-        Write-Host 'PASS: vcpkg'
+        Pass 'vcpkg'
     } else { Skip 'vcpkg: not found (set VCPKG_ROOT)' }
     if (Get-Command conan -ErrorAction SilentlyContinue) {
         PackageProject 'ConanDemo'
@@ -258,8 +298,10 @@ else {
         Put 'conanfile.txt' "[requires]`nfmt/10.2.1`n"
         Beast @('build', $project, '--target', 'ConanDemo', '--config', 'Release')
         Check ((Output (Join-Path (Binaries 'Release') 'ConanDemo.exe')) -eq '42') 'Conan fmt program output'
-        Write-Host 'PASS: Conan'
+        Pass 'Conan'
     } else { Skip 'Conan: conan is not on PATH' }
 }
 
-Write-Host "PASS: feature integration tests. Skipped: $($script:skipped.Count). Products: $testRoot"
+Pass "feature integration tests. Skipped: $($script:skipped.Count). Products: $testRoot"
+# Every check above throws on failure; a leftover $LASTEXITCODE of an expected failing command must not fail the script.
+exit 0
