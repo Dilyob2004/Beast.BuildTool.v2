@@ -8,15 +8,20 @@
 #   bash InstallAndroid.sh --jdk-dir <path>   JDK 17 somewhere else (default ~/.local/share/beast/jdk-17,
 #                                             macOS ~/Library/Java/JavaVirtualMachines/beast-temurin-17)
 #   bash InstallAndroid.sh --ndk <version>    NDK version (default: the one Beast's CI uses)
+#   bash InstallAndroid.sh --cmdline-tools <v> command-line tools version (default 19.0: its sdkmanager works
+#                                             on its own; 23.0+ hands over to "Android CLI", which collects usage metrics)
 #   bash InstallAndroid.sh --emulator         also the emulator, a system image and AVD beast_api34
 #   bash InstallAndroid.sh --force            download again what is already installed (including the JDK)
 #   bash InstallAndroid.sh --no-profile       do not edit ~/.zshrc / ~/.bashrc / ~/.profile
-# Licenses are accepted automatically (sdkmanager --licenses). Sources: dl.google.com (repository
+# Licenses are accepted automatically (sdkmanager --licenses, where still needed). Sources: dl.google.com (repository
 # catalogue, SHA-1 checked) and api.adoptium.net (Temurin, SHA-256 checked).
 set -euo pipefail
 # In GitHub Actions a failure is also an annotation: the failing command and its line.
 [[ -n "${GITHUB_ACTIONS:-}" ]] && trap 'echo "::error title=InstallAndroid.sh::line $LINENO: $BASH_COMMAND failed"' ERR
 NDK_DEFAULT=27.3.13750724
+# sdkmanager of cmdline-tools 23.0+ is deprecated in favour of "Android CLI": it downloads that tool and
+# enables Google usage metrics. 19.0 is the pinned default (archives and SHA-1 from Google's catalogue).
+CMDLINE_TOOLS_DEFAULT=19.0
 PLATFORM=android-35
 BUILD_TOOLS=35.0.0
 AVD=beast_api34
@@ -29,17 +34,18 @@ case "$(uname -s)" in
 esac
 case "$(uname -m)" in arm64|aarch64) arch=aarch64 ;; *) arch=x64 ;; esac
 
-dir="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$sdk_default}}"; jdk_dir="$jdk_default"; ndk="$NDK_DEFAULT"
+dir="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$sdk_default}}"; jdk_dir="$jdk_default"; ndk="$NDK_DEFAULT"; tools="$CMDLINE_TOOLS_DEFAULT"
 emulator=0; force=0; profile=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dir) dir="$2"; shift 2 ;;
         --jdk-dir) jdk_dir="$2"; shift 2 ;;
         --ndk) ndk="$2"; shift 2 ;;
+        --cmdline-tools) tools="$2"; shift 2 ;;
         --emulator) emulator=1; shift ;;
         --force) force=1; shift ;;
         --no-profile) profile=0; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -80,29 +86,42 @@ fi
 export JAVA_HOME="$jdk"
 
 # --- Command-line tools (sdkmanager) ------------------------------------------------------------
-sdkmanager="$dir/cmdline-tools/latest/bin/sdkmanager"
+# Installed as cmdline-tools/<version> (not latest/), so an Android Studio cmdline-tools/latest of
+# another version is neither used nor replaced.
+tools_dir="$dir/cmdline-tools/$tools"
+sdkmanager="$tools_dir/bin/sdkmanager"
+tools_major="${tools%%.*}"
+if [[ "$tools_major" =~ ^[0-9]+$ && "$tools_major" -ge 23 ]]; then
+    echo "Warning: cmdline-tools $tools: its sdkmanager hands over to Android CLI, which collects usage metrics."
+fi
 if [[ $force == 1 || ! -x "$sdkmanager" ]]; then
-    # The stable cmdline-tools;latest archive for this OS from Google's repository catalogue.
+    # cmdline-tools;<version> for this OS (and architecture, when the catalogue has one) from Google's catalogue.
     download "$REPOSITORY/repository2-3.xml" "$work/repository.xml"
     [[ $os == mac ]] && host=macosx || host=linux
-    read -r file checksum < <(awk -v host="$host" -v arch="$arch" '
-        /<remotePackage path="cmdline-tools;latest">/ { inside = 1; stable = 0; next }
+    [[ $arch == aarch64 ]] && archs="aarch64 arm64" || archs="x64 x86_64"
+    read -r file checksum < <(awk -v host="$host" -v archs=" $archs " -v package="cmdline-tools;$tools" '
+        index($0, "<remotePackage path=\"" package "\"") { inside = 1; next }
         inside && /<\/remotePackage>/ { inside = 0; next }
-        inside && /<channelRef ref="channel-0"\/>/ { stable = 1 }
-        inside && stable && /<archive>/ { u = ""; c = ""; o = ""; a = "" }
-        inside && stable { if (match($0, /<url>[^<]+<\/url>/)) u = substr($0, RSTART + 5, RLENGTH - 11)
-                           if (match($0, /<checksum[^>]*>[^<]+<\/checksum>/)) { s = substr($0, RSTART, RLENGTH); sub(/<checksum[^>]*>/, "", s); sub(/<\/checksum>/, "", s); c = s }
-                           if (match($0, /<host-os>[^<]+<\/host-os>/)) o = substr($0, RSTART + 9, RLENGTH - 19)
-                           if (match($0, /<host-arch>[^<]+<\/host-arch>/)) a = substr($0, RSTART + 11, RLENGTH - 23) }
-        inside && stable && /<\/archive>/ && o == host { if (a == arch || (a == "" && best == "")) best = u " " c; if (a == arch) exact = u " " c }
+        inside && /<archive>/ { u = ""; c = ""; o = ""; a = "" }
+        inside { if (match($0, /<url>[^<]+<\/url>/)) u = substr($0, RSTART + 5, RLENGTH - 11)
+                 if (match($0, /<checksum[^>]*>[^<]+<\/checksum>/)) { s = substr($0, RSTART, RLENGTH); sub(/<checksum[^>]*>/, "", s); sub(/<\/checksum>/, "", s); c = s }
+                 if (match($0, /<host-os>[^<]+<\/host-os>/)) o = substr($0, RSTART + 9, RLENGTH - 19)
+                 if (match($0, /<host-arch>[^<]+<\/host-arch>/)) a = substr($0, RSTART + 11, RLENGTH - 23) }
+        inside && /<\/archive>/ && o == host {
+            if (a == "" && best == "") best = u " " c
+            if (a != "" && index(archs, " " a " ")) exact = u " " c
+            # mac_arm64/mac_x86_64 archives without host-arch: tell them apart by name.
+            if (a == "" && ((index(u, "arm64") && index(archs, "arm64")) || (index(u, "x86_64") && index(archs, "x86_64")))) exact = u " " c }
         END { print (exact != "" ? exact : best) }' "$work/repository.xml")
-    [[ -n "${file:-}" ]] || { echo "cmdline-tools for $host not found in $REPOSITORY/repository2-3.xml"; exit 1; }
+    [[ -n "${file:-}" ]] || { echo "cmdline-tools $tools for $host not found in $REPOSITORY/repository2-3.xml"; exit 1; }
     download "$REPOSITORY/$file" "$work/cmdline-tools.zip"
     [[ "$(sha 1 "$work/cmdline-tools.zip")" == "$checksum" ]] || { echo "cmdline-tools checksum mismatch ($file)"; exit 1; }
     mkdir -p "$work/cmdline-tools" && unzip -q "$work/cmdline-tools.zip" -d "$work/cmdline-tools"
-    rm -rf "$dir/cmdline-tools/latest"; mkdir -p "$dir/cmdline-tools"
-    mv "$work/cmdline-tools/cmdline-tools" "$dir/cmdline-tools/latest"
-    echo "Command-line tools installed: $dir/cmdline-tools/latest ($file)"
+    rm -rf "$tools_dir"; mkdir -p "$dir/cmdline-tools"
+    mv "$work/cmdline-tools/cmdline-tools" "$tools_dir"
+    echo "Command-line tools $tools installed: $tools_dir ($file)"
+else
+    echo "Already installed: cmdline-tools $tools"
 fi
 
 # --- Packages ------------------------------------------------------------------------------------
@@ -121,7 +140,10 @@ if [[ $emulator == 1 ]]; then
     need "platforms;android-34" "platforms/android-34/android.jar"
     need "$image" "system-images/android-34/google_apis/$image_abi/system.img"
 fi
-yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --licenses >/dev/null || true
+# Licenses: sdkmanager up to 22.0 needs them accepted first; 23.0+ says --licenses is no longer needed.
+if ! [[ "$tools_major" =~ ^[0-9]+$ && "$tools_major" -ge 23 ]]; then
+    yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --licenses >/dev/null || true
+fi
 if [[ ${#packages[@]} -gt 0 ]]; then
     echo "Installing: ${packages[*]}"
     yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --install "${packages[@]}" | grep -v '^\[=*' || true
@@ -132,7 +154,7 @@ fi
 
 # --- AVD -----------------------------------------------------------------------------------------
 if [[ $emulator == 1 ]]; then
-    avdmanager="$dir/cmdline-tools/latest/bin/avdmanager"
+    avdmanager="$tools_dir/bin/avdmanager"
     # Both variables: a stale ANDROID_SDK_ROOT (another SDK) would make avdmanager ignore this one.
     export ANDROID_HOME="$dir" ANDROID_SDK_ROOT="$dir"
     # The emulator's own list ('run --avd' starts the AVD through it; avdmanager's list is less reliable).
