@@ -128,7 +128,10 @@ try {
     $yes | & $sdkmanager "--sdk_root=$Dir" --licenses | Out-Null
     if ($packages.Count -gt 0) {
         Write-Host "Installing: $($packages -join ', ')"
-        $yes | & $sdkmanager "--sdk_root=$Dir" --install @packages | Where-Object { $_ -notmatch '^\[=*' } | Write-Host
+        # A package file, not arguments: cmd.exe (sdkmanager.bat) splits "platforms;android-35" at ';'.
+        $packageFile = Join-Path $work 'packages.txt'
+        [IO.File]::WriteAllLines($packageFile, [string[]]$packages)
+        $yes | & $sdkmanager "--sdk_root=$Dir" "--package_file=$packageFile" | Where-Object { $_ -notmatch '^\[=*' } | Write-Host
         $ErrorActionPreference = 'Stop'
         foreach ($package in $packages) {
             if (-not (Test-Path (Join-Path $Dir $wanted[$package]))) { throw "sdkmanager did not install $package ($(Join-Path $Dir $wanted[$package]) is missing)" }
@@ -144,7 +147,8 @@ try {
         $ErrorActionPreference = 'Continue'
         $existing = @(& $avdmanager list avd -c 2>$null)
         if ($Force -or $existing -notcontains $Avd) {
-            'no' | & $avdmanager create avd --force -n $Avd -k $image -d pixel_6 | Out-Null
+            # Quoted for cmd.exe (avdmanager.bat), which would split the package path at ';'.
+            'no' | & $avdmanager create avd --force -n $Avd -k "`"$image`"" -d pixel_6 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "avdmanager could not create $Avd" }
             Write-Host "AVD created: $Avd ($image)"
         } else { Write-Host "Already created: AVD $Avd" }

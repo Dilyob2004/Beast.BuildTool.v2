@@ -163,6 +163,7 @@ jobs:
           if ($second -match 'Downloading|Installing:') { Write-Host '::error title=InstallAndroid.ps1::the second run downloaded again'; exit 1 }
       - name: Build the Android template with the installed toolchain
         run: |
+          trap 'echo "::error title=android-install::$BASH_COMMAND failed (line $LINENO)"' ERR
           tool=BuildTool/bin/Beast.BuildTool; [[ "$RUNNER_OS" == Windows ]] && tool=BuildTool/bin/Beast.BuildTool.exe
           jdk="$RUNNER_TEMP/jdk"; [[ "$RUNNER_OS" == macOS ]] && jdk="$jdk/Contents/Home"
           "$tool" new Droid --path "$RUNNER_TEMP/projects"
@@ -174,10 +175,14 @@ jobs:
           c["android"].update({"sdkRoot": sdk, "ndkRoot": os.path.join(sdk, "ndk"), "javaHome": jdk, "abis": ["x86_64"]})
           json.dump(c, open(path, "w"), indent=2)
           EOF
-          "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug
+          if ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1; then
+            cat "$RUNNER_TEMP/build.log"
+            tail -n 30 "$RUNNER_TEMP/build.log" | grep -v ' Verbose ' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' | sed 's/^/::error title=android-install build::/'; echo
+            exit 1
+          fi
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
-            JAVA_HOME="$jdk" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd -c | tee "$RUNNER_TEMP/avds.txt"
+            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd -c | tee "$RUNNER_TEMP/avds.txt"
             grep -qx beast_api34 "$RUNNER_TEMP/avds.txt"
           fi
           echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
