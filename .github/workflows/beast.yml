@@ -185,10 +185,13 @@ jobs:
           fi
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
-            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd >"$RUNNER_TEMP/avds.txt" 2>&1 || true
-            cat "$RUNNER_TEMP/avds.txt"; ls -la ~/.android/avd 2>&1 || true
-            if ! grep -q "Name: beast_api34" "$RUNNER_TEMP/avds.txt"; then
-              echo "::error title=android-install::AVD beast_api34 not listed: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500) | avd dir: $(ls ~/.android/avd 2>&1 | tr '\n' ' ') | env: $(env | grep -i 'android' | tr '\n' ' ') | ini: $(cat ~/.android/avd/beast_api34.ini | tr '\n' ' ') | config: $(grep -E 'image|abi|target|tag' ~/.android/avd/beast_api34.avd/config.ini | tr '\n' ' ') | sysdir: $(ls "$RUNNER_TEMP/android/system-images/android-34/google_apis/x86_64" 2>&1 | tr '\n' ' ')"
+            # The AVD as 'run --avd beast_api34' starts it: the emulator's own list.
+            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk"
+            "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >>"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            cat "$RUNNER_TEMP/avds.txt"
+            if [[ "$(grep -cx beast_api34 "$RUNNER_TEMP/avds.txt")" -lt 2 ]]; then
+              echo "::error title=android-install::AVD beast_api34 not listed by emulator -list-avds and avdmanager list avd -c: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500)"
               exit 1
             fi
           fi
