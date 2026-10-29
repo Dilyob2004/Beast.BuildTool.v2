@@ -125,6 +125,75 @@ jobs:
           path: Tests/Generated
           if-no-files-found: ignore
 
+  android-install:
+    # InstallAndroid.sh / InstallAndroid.ps1 into $RUNNER_TEMP (JDK 17, command-line tools, SDK packages,
+    # NDK; on Linux also the emulator, a system image and AVD beast_api34), a second run that must not
+    # download anything, then the 'new' template APK built with exactly these paths.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build tool
+        run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+      - name: InstallAndroid.sh
+        if: runner.os != 'Windows'
+        run: |
+          unset JAVA_HOME ANDROID_HOME ANDROID_SDK_ROOT
+          extra=(); [[ "$RUNNER_OS" == Linux ]] && extra=(--emulator)
+          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --force --no-profile "${extra[@]}"
+          set -o pipefail
+          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile "${extra[@]}" | tee "$RUNNER_TEMP/second.log"
+          if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then echo "::error title=InstallAndroid.sh::the second run downloaded again"; exit 1; fi
+      - name: InstallAndroid.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item Env:JAVA_HOME, Env:ANDROID_HOME, Env:ANDROID_SDK_ROOT -ErrorAction SilentlyContinue
+          ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -Force -NoProfile
+          $second = ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -NoProfile *>&1 | Out-String
+          Write-Host $second
+          if ($second -match 'Downloading|Installing:') { Write-Host '::error title=InstallAndroid.ps1::the second run downloaded again'; exit 1 }
+      - name: Build the Android template with the installed toolchain
+        run: |
+          trap 'echo "::error title=android-install::$BASH_COMMAND failed (line $LINENO)"' ERR
+          tool=BuildTool/bin/Beast.BuildTool; [[ "$RUNNER_OS" == Windows ]] && tool=BuildTool/bin/Beast.BuildTool.exe
+          jdk="$RUNNER_TEMP/jdk"; [[ "$RUNNER_OS" == macOS ]] && jdk="$jdk/Contents/Home"
+          "$tool" new Droid --path "$RUNNER_TEMP/projects"
+          py="$(command -v python3 || command -v python)"
+          "$py" - "$RUNNER_TEMP/projects/Droid/Config/BuildConfig.json" "$RUNNER_TEMP/android" "$jdk" <<'EOF'
+          import json, os, sys
+          path, sdk, jdk = sys.argv[1:]
+          c = json.load(open(path))
+          c["android"].update({"sdkRoot": sdk, "ndkRoot": os.path.join(sdk, "ndk"), "javaHome": jdk, "abis": ["x86_64"]})
+          json.dump(c, open(path, "w"), indent=2)
+          EOF
+          # One retry: Maven Central sometimes answers 403 to a runner while Gradle resolves the Android plugin.
+          if ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1 &&
+             { sleep 30; ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1; }; then
+            cat "$RUNNER_TEMP/build.log"
+            tail -n 30 "$RUNNER_TEMP/build.log" | grep -v ' Verbose ' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' | sed 's/^/::error title=android-install build::/'; echo
+            exit 1
+          fi
+          test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            # The AVD as 'run --avd beast_api34' starts it: the emulator's own list.
+            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk"
+            "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/emulator-avds.txt" 2>&1 || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            echo "::notice title=android-install AVDs::avdmanager: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 500) | emulator -list-avds: $(tr '\n' ' ' <"$RUNNER_TEMP/emulator-avds.txt" | head -c 500)"
+            grep -qx beast_api34 "$RUNNER_TEMP/emulator-avds.txt" || { echo "::error title=android-install::the emulator does not list beast_api34"; exit 1; }
+          fi
+          echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
+
   macos:
     runs-on: macos-latest
     steps:
