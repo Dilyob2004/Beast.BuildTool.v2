@@ -1,0 +1,26 @@
+name: Probe cmdline-tools
+on:
+  push:
+    branches: [cmdline-probe]
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          for f in repository2-3.xml repository2-1.xml; do
+            curl -fsSL "https://dl.google.com/android/repository/$f" -o $f || continue
+            python3 - "$f" <<'PY'
+          import re, sys
+          text = open(sys.argv[1]).read()
+          for m in re.finditer(r'<remotePackage path="(cmdline-tools;[^"]+)"(.*?)</remotePackage>', text, re.S):
+              body = m.group(2)
+              rev = re.search(r'<revision>(.*?)</revision>', body, re.S).group(1)
+              rev = '.'.join(re.findall(r'>(\d+)<', rev))
+              chan = re.search(r'channelRef ref="([^"]+)"', body).group(1)
+              arch = [(re.search(r'<host-os>(.*?)</host-os>', a).group(1) if '<host-os>' in a else '-',
+                       re.search(r'<url>(.*?)</url>', a).group(1), re.search(r'<checksum[^>]*>(.*?)</checksum>', a).group(1))
+                      for a in re.findall(r'<archive>(.*?)</archive>', body, re.S)]
+              line = f"{sys.argv[1]} {m.group(1)} rev={rev} {chan} " + " ".join(f"{o}:{u}:{c}" for o, u, c in arch)
+              print(line); print("::notice title=cmdline::" + line)
+          PY
+          done
