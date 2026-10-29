@@ -33,6 +33,7 @@ public sealed class Watcher
     }
 
     /// <summary>Changes Beast itself makes, or editors' temporary files, do not start a build.</summary>
+    /// <param name="path">Path relative to the watched directory (directories above it do not count).</param>
     internal static bool IsRelevant(string path)
     {
         string normalized = path.Replace('\\', '/');
@@ -49,11 +50,11 @@ public sealed class Watcher
         {
             var watcher = new FileSystemWatcher(directory) { IncludeSubdirectories = true, InternalBufferSize = 64 * 1024,
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size };
-            watcher.Changed += (_, e) => Changed(e.FullPath);
-            watcher.Created += (_, e) => Changed(e.FullPath);
-            watcher.Deleted += (_, e) => Changed(e.FullPath);
-            watcher.Renamed += (_, e) => { Changed(e.OldFullPath); Changed(e.FullPath); };
-            watcher.Error += (_, e) => { Log.TraceWarning("File watcher overflow: " + e.GetException().Message + " Rebuilding."); Changed(directory); };
+            watcher.Changed += (_, e) => Changed(directory, e.FullPath);
+            watcher.Created += (_, e) => Changed(directory, e.FullPath);
+            watcher.Deleted += (_, e) => Changed(directory, e.FullPath);
+            watcher.Renamed += (_, e) => { Changed(directory, e.OldFullPath); Changed(directory, e.FullPath); };
+            watcher.Error += (_, e) => { Log.TraceWarning("File watcher overflow: " + e.GetException().Message + " Rebuilding."); Changed(directory, Path.Combine(directory, "overflow")); };
             watcher.EnableRaisingEvents = true;
             return watcher;
         }).ToList();
@@ -83,9 +84,10 @@ public sealed class Watcher
         }
     }
 
-    private void Changed(string path)
+    private void Changed(string root, string path)
     {
-        if (!IsRelevant(path)) return;
+        if (!IsRelevant(Path.GetRelativePath(root, path))) return;
+        Log.TraceVerbose($"[watch] Changed: {path}");
         lock (_gate)
         {
             _pending = true;

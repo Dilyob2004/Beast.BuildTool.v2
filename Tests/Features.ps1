@@ -304,7 +304,7 @@ $watch = Start-Process -FilePath $tool -NoNewWindow -PassThru -RedirectStandardO
     -ArgumentList @('watch', "`"$watchProject`"", '--target', 'Watch', '--config', 'Debug', '--versioned', '--debounce', '200', '--on-success', "`"echo %BEAST_BUILD% %BEAST_TARGET%>>..\watch-hooks.txt`"")   # runs in the project directory
 function WaitFor([scriptblock]$Condition, [string]$Message) {
     for ($i = 0; $i -lt 240; $i++) { if (& $Condition) { return }; Start-Sleep -Milliseconds 500 }
-    throw "$Message`n$(Get-Content (Join-Path $testRoot 'watch.log') -Raw)"
+    throw "$Message`n$((Get-Content (Join-Path $testRoot 'watch.log') | Where-Object { $_ -notmatch 'VisualStudioInstance' } | Select-Object -Last 40) -join "`n")"
 }
 try {
     WaitFor { (Test-Path $hooks) -and ((Get-Content $hooks) -match '^1 Watch') } 'watch: initial build or --on-success'
