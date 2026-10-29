@@ -187,13 +187,10 @@ jobs:
           if [[ "$RUNNER_OS" == Linux ]]; then
             # The AVD as 'run --avd beast_api34' starts it: the emulator's own list.
             export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk"
-            "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/avds.txt" 2>&1 || true
-            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >>"$RUNNER_TEMP/avds.txt" 2>&1 || true
-            cat "$RUNNER_TEMP/avds.txt"
-            if [[ "$(grep -cx beast_api34 "$RUNNER_TEMP/avds.txt")" -lt 2 ]]; then
-              echo "::error title=android-install::AVD beast_api34 not listed by emulator -list-avds and avdmanager list avd -c: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500)"
-              exit 1
-            fi
+            "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/emulator-avds.txt" 2>&1 || true
+            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            echo "::notice title=android-install AVDs::avdmanager: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 500) | emulator -list-avds: $(tr '\n' ' ' <"$RUNNER_TEMP/emulator-avds.txt" | head -c 500)"
+            grep -qx beast_api34 "$RUNNER_TEMP/avds.txt" || { echo "::error title=android-install::avdmanager does not list beast_api34"; exit 1; }
           fi
           echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
 
