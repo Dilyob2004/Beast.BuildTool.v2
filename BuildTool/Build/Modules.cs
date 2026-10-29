@@ -48,6 +48,14 @@ namespace Beast.BuildTool
         public string? BuildProjectDirectory => GlobalEnvironment.ProjectPath;
         /// <summary>Name of the external project whose rules are evaluated; null for the built project itself.</summary>
         public string? ExternalProjectName { get; }
+        /// <summary>Android: the NDK in use (the version directory, e.g. .../ndk/27.0.12077973); null on other platforms.</summary>
+        public string? AndroidNdkRoot { get; }
+        /// <summary>Android: the SDK (android.sdkRoot or ANDROID_HOME) when it exists; null on other platforms.</summary>
+        public string? AndroidSdkRoot { get; }
+        /// <summary>Android: API level of the compiler target (android.minSdk); null on other platforms.</summary>
+        public int? AndroidApiLevel { get; }
+        /// <summary>Android ABI being compiled ("arm64-v8a", "x86_64"); null on other platforms.</summary>
+        public string? AndroidAbi { get; }
         public ModulesInfo(TargetConfiguration configuration, Platform platform, string? projectDirectory = null, string? externalProjectName = null)
         {
             Configuration = configuration;
@@ -55,6 +63,15 @@ namespace Beast.BuildTool
             Architecture = platform.Architecture;
             _projectDirectory = projectDirectory;
             ExternalProjectName = externalProjectName;
+            if (platform is AndroidPlatform android)
+            {
+                AndroidNdkRoot = android.NdkRoot;
+                AndroidApiLevel = android.ApiLevel;
+                AndroidAbi = android.Abi;
+                string sdk = System.Environment.ExpandEnvironmentVariables(BuildConfigManager.Config.Android.SdkRoot ?? "");
+                if (string.IsNullOrWhiteSpace(sdk)) sdk = HostPlatform.DefaultAndroidSdk();
+                AndroidSdkRoot = !string.IsNullOrWhiteSpace(sdk) && System.IO.Directory.Exists(sdk) ? System.IO.Path.GetFullPath(sdk) : null;
+            }
         }
     }
     public class ModuleRules
@@ -100,6 +117,12 @@ namespace Beast.BuildTool
         /// </summary>
         public RuntimeDependencyCollection AndroidJavaSources { get; } = new();
         public List<BuildStep> BuildSteps { get; } = [];
+        /// <summary>
+        /// Sources outside the module directory compiled as part of this module (absolute, module-relative
+        /// or with {ProjectDir}/{ModuleDir}... tokens), e.g. a file of the NDK:
+        /// AdditionalSources.Add(Path.Combine(info.AndroidNdkRoot!, "sources/android/native_app_glue/android_native_app_glue.c")).
+        /// </summary>
+        public List<string> AdditionalSources { get; } = [];
         public HashSet<string> GeneratedSources { get; } = new(StringComparer.OrdinalIgnoreCase);
         [Obsolete("Not used by Beast. Use PublicDependencies/PrivateDependencies, InputLibraries or VcpkgLibraries.")]
         public HashSet<string> DirectoryDependencies { get; } = new HashSet<string>();

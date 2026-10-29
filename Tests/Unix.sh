@@ -531,7 +531,13 @@ EOF2
     dex
     check '! grep -aq "Lcom/beast/sdk/text/BeastText;" "$work/classes.dex" && grep -aq "Lcom/beast/sdk/BeastWidgets;" "$work/classes.dex"' 'a Java file removed from the rules stayed in the APK'
     check '[[ -z "$(find "$ext/AppA/Platforms/Android/app/src" -name "Beast*.java")" ]]' 'Java sources were copied into the Gradle project'
-    pass 'Android APK with an external project (AndroidAssets, Resources, AndroidJavaSources: edit, removal)'
+    # ModulesInfo.AndroidNdkRoot + AdditionalSources: the SDK compiles the NDK's native_app_glue with its own definition.
+    glue="$(find "$ext/AppA/Intermediate/Build/Android-x86_64/Debug/External/SDK/SDK" -name 'android_native_app_glue*.o' -print -quit)"
+    nm="$(find "$ndk" -path '*/bin/llvm-nm' -print -quit)"
+    if [[ -n "$glue" ]]; then "$nm" "$glue" >"$work/glue-nm.txt" 2>&1 || true; else { echo "no android_native_app_glue object; objects:"; find "$ext/AppA/Intermediate/Build" -name "*.o"; } >"$work/glue-nm.txt" 2>&1; fi
+    cp "$work/glue-nm.txt" "$work/last.log"
+    check 'grep -q "T BeastNativeActivityOnCreate" "$work/glue-nm.txt"' 'native_app_glue not compiled from the NDK with its definition'
+    pass 'Android APK with an external project (AndroidAssets, Resources, AndroidJavaSources: edit, removal; NDK native_app_glue)'
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"
