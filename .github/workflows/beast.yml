@@ -184,7 +184,7 @@ jobs:
           fi
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
-            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd >"$RUNNER_TEMP/avds.txt" 2>&1 || true
             cat "$RUNNER_TEMP/avds.txt"; ls -la ~/.android/avd 2>&1 || true
             if ! grep -q "Name: beast_api34" "$RUNNER_TEMP/avds.txt"; then
               echo "::error title=android-install::AVD beast_api34 not listed: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500) | avd dir: $(ls ~/.android/avd 2>&1 | tr '\n' ' ')"

@@ -131,8 +131,10 @@ fi
 # --- AVD -----------------------------------------------------------------------------------------
 if [[ $emulator == 1 ]]; then
     avdmanager="$dir/cmdline-tools/latest/bin/avdmanager"
-    if [[ $force == 1 ]] || ! ANDROID_HOME="$dir" "$avdmanager" list avd -c 2>/dev/null | grep -qx "$AVD"; then
-        echo no | ANDROID_HOME="$dir" ANDROID_SDK_ROOT="$dir" "$avdmanager" create avd --force -n "$AVD" -k "$image" -d pixel_6 >/dev/null
+    # Both variables: a stale ANDROID_SDK_ROOT (another SDK) would make avdmanager ignore this one.
+    export ANDROID_HOME="$dir" ANDROID_SDK_ROOT="$dir"
+    if [[ $force == 1 ]] || ! "$avdmanager" list avd -c 2>/dev/null | grep -qx "$AVD"; then
+        echo no | "$avdmanager" create avd --force -n "$AVD" -k "$image" -d pixel_6 >/dev/null
         echo "AVD created: $AVD ($image)"
     else
         echo "Already created: AVD $AVD"
