@@ -78,6 +78,41 @@ BuildTool/bin/Beast.BuildTool run Projects/HelloApp
 `BEAST_QUIT_AFTER_LAUNCH=1` они завершаются сразу после запуска (так их проверяет CI; в симуляторе —
 `SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1`). Это минимальные заготовки, не UI-библиотека.
 
+### Android SDK, NDK и JDK
+
+Для Android нужны JDK 17, Android SDK (platform-tools, `platforms;android-35`, `build-tools;35.0.0`) и
+NDK. Скрипты в корне репозитория ставят всё это без прав администратора — так же, как
+`InstallDotnet`:
+
+```bash
+bash InstallAndroid.sh                 # Linux, macOS
+bash InstallAndroid.sh --emulator      # плюс эмулятор, образ android-34 и AVD beast_api34
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1            # Windows
+powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1 -Emulator
+```
+
+- **JDK 17** — Eclipse Temurin под ОС и архитектуру (`api.adoptium.net`, проверка SHA-256). Если
+  JDK 17+ уже есть в `JAVA_HOME` или в Android Studio (JBR), он используется. Ставится в
+  `%LOCALAPPDATA%\Beast\jdk-17`, `~/.local/share/beast/jdk-17` или
+  `~/Library/Java/JavaVirtualMachines/beast-temurin-17` (`--jdk-dir`/`-JdkDir`).
+- **Android SDK** — в тот же каталог, что у Android Studio: `%LOCALAPPDATA%\Android\Sdk`, `~/Android/Sdk`,
+  `~/Library/Android/sdk` (или `ANDROID_HOME`; `--dir`/`-Dir`). Command-line tools берутся из каталога
+  репозитория Google (стабильный канал, проверка SHA-1), остальное ставит `sdkmanager`; лицензии
+  принимаются автоматически. NDK — версия, на которой проверяется CI (`27.3.13750724`), другая —
+  `--ndk`/`-Ndk`.
+- **Эмулятор** (`--emulator`/`-Emulator`): `emulator`, `system-images;android-34;google_apis;x86_64`
+  (на Apple Silicon — `arm64-v8a`) и AVD `beast_api34` — для `run --platform Android --avd beast_api34`
+  или `"defaultAvd": "beast_api34"`.
+- Уже установленное не скачивается повторно; `--force`/`-Force` переустанавливает всё, включая JDK.
+- `ANDROID_HOME`, `JAVA_HOME` и `platform-tools` в `PATH` прописываются в профиль shell
+  (`~/.zshrc`, `~/.bashrc`) или в переменные окружения пользователя Windows; `--no-profile`/`-NoProfile`
+  отключает это. В конце скрипт печатает пути, которые подхватит Beast (по умолчанию `android.sdkRoot` —
+  `ANDROID_HOME`, `android.ndkRoot` — его `ndk/` с новейшей версией, `android.javaHome` — `JAVA_HOME`), а
+  без профиля — готовый фрагмент `Config/BuildConfig.json`.
+
 Генератор создаёт конфиг путей Java/Android SDK/NDK:
 `Projects/HelloApp/Config/BuildConfig.json`. При необходимости настройте
 `android.javaHome`, `android.sdkRoot`, `android.ndkRoot`, `android.ndkVersion`.

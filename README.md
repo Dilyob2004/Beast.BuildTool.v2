@@ -71,6 +71,7 @@ public sealed class GameTarget : TargetRules
 
 Сборка из исходников: .NET 10 SDK (`bash InstallDotnet.sh` или `InstallDotnet.ps1` ставят его) и `Build.bat`
 (Windows) или `bash Build.sh` (Linux, macOS).
+Android-тулчейн (JDK 17, SDK, NDK, по желанию эмулятор) ставят `bash InstallAndroid.sh` / `InstallAndroid.ps1`.
 
 ## Документация
 
