@@ -10,6 +10,8 @@ public sealed class AndroidPackagePlan
     private readonly List<Entry> entries = [];
     private readonly string root;
     public string AssetsDirectory => Path.Combine(root, "assets");
+    /// <summary>Staged AndroidJavaSources: a Java source root added to the app's main source set.</summary>
+    public string JavaDirectory => Path.Combine(root, "java");
     public string NativeDirectory => Path.Combine(root, "deploy", "jniLibs");
     public IEnumerable<string> NativeFiles => entries.Where(e => e.Native).Select(e => Path.Combine(root, "inputs", e.Destination));
     public string Abi { get; }
@@ -29,12 +31,45 @@ public sealed class AndroidPackagePlan
             foreach (var item in module.AndroidAssets) Collect(module, item, false);
             foreach (var item in module.AndroidNativeLibraries) Collect(module, item, true);
             foreach (var item in module.Resources) Collect(module, item, false);
+            foreach (var item in module.AndroidJavaSources) CollectJava(module, item);
         }
         entries = destinations.Values.OrderBy(e => e.Destination, StringComparer.Ordinal).ToList();
         // A changed file set gets its own staging tree. Removed declarations cannot
         // leak into APKs and no files in the user's Gradle project need deleting.
         string layout = BuildCacheSession.HashText(JsonSerializer.Serialize(entries));
         root = Path.Combine(buildDirectory, "AndroidPackage", layout);
+
+        void CollectJava(ModuleRules module, RuntimeDependency item)
+        {
+            string source = Path.GetFullPath(paths.Expand(module, item.Source), module.ModuleDirectory);
+            if (Directory.Exists(source))
+            {
+                // A directory is a source root (or, with a destination, a package directory below it).
+                string prefix = (item.Destination ?? "").Replace('\\', '/').Trim('/');
+                if (prefix.Length > 0) ValidateRelative(prefix);
+                void Visit(string directory)
+                {
+                    RejectLink(directory);
+                    foreach (string file in Directory.EnumerateFileSystemEntries(directory).Order(StringComparer.Ordinal))
+                        if (Directory.Exists(file)) Visit(file);
+                        else
+                        {
+                            RejectLink(file);
+                            string relative = Path.GetRelativePath(source, file).Replace('\\', '/');
+                            Add(file, "java/" + (prefix.Length > 0 ? prefix + "/" : "") + relative, false);
+                        }
+                }
+                Visit(source);
+                return;
+            }
+            if (!File.Exists(source)) throw new FileNotFoundException($"{module.ModuleName}: AndroidJavaSources file not found: {item.Source}", source);
+            RejectLink(source);
+            string destination = (item.Destination ?? JavaPath(source)).Replace('\\', '/');
+            ValidateRelative(destination);
+            if (!destination.EndsWith(".java", StringComparison.Ordinal) && !destination.EndsWith(".kt", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{module.ModuleName}: AndroidJavaSources destination must be a .java or .kt file: {destination}");
+            Add(source, "java/" + destination, false);
+        }
 
         void Collect(ModuleRules module, RuntimeDependency item, bool native)
         {
@@ -74,6 +109,14 @@ public sealed class AndroidPackagePlan
         }
     }
 
+    /// <summary>"package com.beast.sdk;" in X.java -> com/beast/sdk/X.java (the default package: X.java).</summary>
+    internal static string JavaPath(string file)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(file), @"^\s*package\s+([A-Za-z_][\w.]*)\s*;?", System.Text.RegularExpressions.RegexOptions.Multiline);
+        string name = Path.GetFileName(file);
+        return match.Success ? match.Groups[1].Value.Replace('.', '/') + "/" + name : name;
+    }
+
     private static void ValidateRelative(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) || path.Split('/', '\\').Any(p => p is "" or "." or ".." || p.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || p.EndsWith('.') || p.EndsWith(' ')))
@@ -103,6 +146,7 @@ public sealed class AndroidPackagePlan
         BuildStepPlan.ValidateOutput(root, Path.Combine(NativeDirectory, ".path-check"));
         Directory.CreateDirectory(AssetsDirectory);
         Directory.CreateDirectory(NativeDirectory);
+        Directory.CreateDirectory(JavaDirectory);
     }
 
     public string DeployNative(string input)

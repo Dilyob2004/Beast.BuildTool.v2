@@ -151,10 +151,32 @@ if (info.Platform == PlatformType.Android)
 в APK, **но не в линковку**: для линковки используйте также `InputLibraries`.
 Все необходимые сторонние `.so` следует объявлять явно.
 
+### Java/Kotlin-исходники модулей
+
+```csharp
+if (info.Platform == PlatformType.Android)
+{
+    AndroidJavaSources.Add("Platform/Android/BeastTextInput.java", "com/beast/sdk/BeastTextInput.java");
+    AndroidJavaSources.Add("Platform/Android/BeastAccessibility.java"); // путь по объявлению package
+    AndroidJavaSources.Add("Platform/Android/Java");                    // каталог-корень: com/beast/sdk/...
+    AndroidJavaSources.Add("Platform/Android/Widgets", "com/beast/sdk/widgets"); // каталог пакета
+}
+```
+
+Файл кладётся по указанному пути относительно корня Java-исходников; без второго аргумента путь
+берётся из объявления `package` (`package com.beast.sdk;` → `com/beast/sdk/Имя.java`). Каталог
+считается корнем исходников (внутри — каталоги пакетов) или, со вторым аргументом, каталогом этого
+пакета; обходится рекурсивно. Принимаются `.java` и `.kt`.
+
+Файлы не копируются в Gradle-проект приложения: Beast складывает их в упаковочный каталог
+(см. ниже) и добавляет его в `main.java` source set через init script. Поэтому `app/src` остаётся
+чистым, удалённый из правил файл исчезает из следующего APK, а изменение `.java` пересобирает APK.
+Работает для модулей приложения и его целей-зависимостей, в том числе целей внешних проектов.
+
 Эти коллекции учитываются только при сборке Android `Application`. Пути источников
 считаются от модуля и поддерживают те же подстановки, что `BuildSteps`. Конфликты
-назначений между объявлениями и выходы `..` за каталог отклоняются. Обычные
-ресурсы `res/`, Java/Kotlin и manifest по-прежнему настраиваются в Gradle-проекте.
+назначений между объявлениями и выходы `..` за каталог отклоняются. Ресурсы `res/` и manifest
+по-прежнему настраиваются в Gradle-проекте.
 
 Упаковочные копии находятся в `Intermediate/Build/.../AndroidPackage/<layout-hash>`.
 При смене набора объявленных файлов используется новый каталог: удалённые
@@ -164,7 +186,7 @@ if (info.Platform == PlatformType.Android)
 в `Binaries/Android/Release/Symbols/arm64-v8a` и перечисляются в `manifest.json`.
 
 Сборщик подключает временный [Gradle init script](https://docs.gradle.org/current/userguide/init_scripts.html)
-с дополнительными [assets/jniLibs source sets](https://developer.android.com/build/build-variants).
+с дополнительными [assets/jniLibs/java source sets](https://developer.android.com/build/build-variants).
 Пользовательский `app/build.gradle` не переписывается; существующие каталоги
 Gradle остаются подключёнными. Поддерживается текущий шаблон с модулем `:app`,
 без product flavors и split APK. Прямой запуск Gradle без Beast не подключает

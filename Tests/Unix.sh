@@ -518,7 +518,20 @@ EOF2
     eapk="$ext/AppA/Binaries/Android/Debug/AppA.apk"
     unzip -l "$eapk" >"$work/ext-apk.txt"
     check 'grep -q "assets/SDK/widgets.txt" "$work/ext-apk.txt" && grep -q "assets/Assets/SDK/sdk.txt" "$work/ext-apk.txt"' 'external project files missing from the APK'
-    pass 'Android APK with an external project (AndroidAssets, Resources)'
+    # AndroidJavaSources of the external module: a source root and a single file (placed by its package).
+    dex() { unzip -p "$eapk" 'classes*.dex' >"$work/classes.dex"; }
+    dex
+    check 'grep -aq "Lcom/beast/sdk/BeastWidgets;" "$work/classes.dex" && grep -aq "Lcom/beast/sdk/text/BeastText;" "$work/classes.dex" && grep -aq "text-v1" "$work/classes.dex"' 'Java sources of the external module are not in the APK'
+    sed -i.bak 's/text-v1/text-v2/' "$ext/SDK/Source/Widgets/Android/BeastText.java" && rm -f "$ext/SDK/Source/Widgets/Android/BeastText.java.bak"
+    beast build "$ext/AppA" --platform Android --config Debug
+    dex
+    check 'grep -aq "text-v2" "$work/classes.dex"' 'a .java edit did not rebuild the APK'
+    sed -i.bak '/BeastText.java/d' "$ext/SDK/Source/Widgets/Widgets.Build.cs" && rm -f "$ext/SDK/Source/Widgets/Widgets.Build.cs.bak"
+    beast build "$ext/AppA" --platform Android --config Debug
+    dex
+    check '! grep -aq "Lcom/beast/sdk/text/BeastText;" "$work/classes.dex" && grep -aq "Lcom/beast/sdk/BeastWidgets;" "$work/classes.dex"' 'a Java file removed from the rules stayed in the APK'
+    check '[[ -z "$(find "$ext/AppA/Platforms/Android/app/src" -name "Beast*.java")" ]]' 'Java sources were copied into the Gradle project'
+    pass 'Android APK with an external project (AndroidAssets, Resources, AndroidJavaSources: edit, removal)'
 fi
 
 echo "PASS: $passed groups; skipped: ${skipped[*]:-none}. Projects: $work"

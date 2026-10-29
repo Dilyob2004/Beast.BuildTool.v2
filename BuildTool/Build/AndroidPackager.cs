@@ -227,6 +227,8 @@ internal static class AndroidPackager
         static string Quote(string value) => "'" + value.Replace("\\", "/").Replace("'", "\\'") + "'";
         var source = new StringBuilder();
         source.AppendLine($"        main.assets.srcDir({Quote(abis[0].Package.AssetsDirectory)})");
+        // AndroidJavaSources: the same for every ABI.
+        source.AppendLine($"        main.java.srcDir({Quote(abis[0].Package.JavaDirectory)})");
         foreach (var output in abis) source.AppendLine($"        main.jniLibs.srcDir({Quote(output.Package.NativeDirectory)})");
         if (legacyPackaging) source.AppendLine($"        main.resources.srcDir({Quote(resources)})");
         var dsl = new StringBuilder();
@@ -273,7 +275,7 @@ internal static class AndroidPackager
             ? Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Where(f => skip == null || !skip(Path.GetRelativePath(directory, f)))
             : [];
         var files = Files(androidProject, Generated)
-            .Concat(abis.SelectMany(a => Files(a.Package.AssetsDirectory).Concat(Files(a.Package.NativeDirectory))))
+            .Concat(abis.SelectMany(a => Files(a.Package.AssetsDirectory).Concat(Files(a.Package.NativeDirectory)).Concat(Files(a.Package.JavaDirectory))))
             .Concat(Files(resources)).Append(initScript)
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)
             .Select(f => f + ":" + BuildCacheSession.HashFile(f));
