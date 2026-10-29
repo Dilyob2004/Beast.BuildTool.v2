@@ -175,15 +175,21 @@ jobs:
           c["android"].update({"sdkRoot": sdk, "ndkRoot": os.path.join(sdk, "ndk"), "javaHome": jdk, "abis": ["x86_64"]})
           json.dump(c, open(path, "w"), indent=2)
           EOF
-          if ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1; then
+          # One retry: Maven Central sometimes answers 403 to a runner while Gradle resolves the Android plugin.
+          if ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1 &&
+             { sleep 30; ! "$tool" build "$RUNNER_TEMP/projects/Droid" --platform Android --config Debug >"$RUNNER_TEMP/build.log" 2>&1; }; then
             cat "$RUNNER_TEMP/build.log"
             tail -n 30 "$RUNNER_TEMP/build.log" | grep -v ' Verbose ' | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' | sed 's/^/::error title=android-install build::/'; echo
             exit 1
           fi
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
-            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd -c | tee "$RUNNER_TEMP/avds.txt"
-            grep -qx beast_api34 "$RUNNER_TEMP/avds.txt"
+            JAVA_HOME="$jdk" ANDROID_HOME="$RUNNER_TEMP/android" "$RUNNER_TEMP/android/cmdline-tools/latest/bin/avdmanager" list avd >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            cat "$RUNNER_TEMP/avds.txt"; ls -la ~/.android/avd 2>&1 || true
+            if ! grep -q "Name: beast_api34" "$RUNNER_TEMP/avds.txt"; then
+              echo "::error title=android-install::AVD beast_api34 not listed: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 1500) | avd dir: $(ls ~/.android/avd 2>&1 | tr '\n' ' ')"
+              exit 1
+            fi
           fi
           echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
 
