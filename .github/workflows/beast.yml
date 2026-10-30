@@ -246,15 +246,18 @@ jobs:
         # variable removed and no paths in Config/BuildConfig.json, Beast finds the JDK, SDK and NDK itself.
         run: |
           set -o pipefail
-          rm -rf "$RUNNER_TEMP/android" "$RUNNER_TEMP/jdk" "$RUNNER_TEMP/projects"   # disk space; nothing below uses them
+          trap 'echo "::error title=android-install discovery::$BASH_COMMAND failed (line $LINENO): $(tail -n 12 "$RUNNER_TEMP/step.log" 2>/dev/null | tr "\n" " " | head -c 1500)"' ERR
+          # Disk space; nothing below uses them. On Windows the previous Gradle daemon may still hold the old JDK.
+          rm -rf "$RUNNER_TEMP/android" "$RUNNER_TEMP/jdk" "$RUNNER_TEMP/projects" 2>/dev/null || true
           tool=BuildTool/bin/Beast.BuildTool; [[ "$RUNNER_OS" == Windows ]] && tool=BuildTool/bin/Beast.BuildTool.exe
           clean_env=(env -u JAVA_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME)
           if [[ "$RUNNER_OS" == Windows ]]; then
-            "${clean_env[@]}" pwsh -NoProfile -File InstallAndroid.ps1 -NoProfile 2>&1 | tail -n 12
+            "${clean_env[@]}" pwsh -NoProfile -File InstallAndroid.ps1 -NoProfile >"$RUNNER_TEMP/step.log" 2>&1
           else
-            "${clean_env[@]}" bash InstallAndroid.sh --no-profile 2>&1 | tail -n 12
+            "${clean_env[@]}" bash InstallAndroid.sh --no-profile >"$RUNNER_TEMP/step.log" 2>&1
           fi
-          "${clean_env[@]}" "$tool" new Auto --path "$RUNNER_TEMP/auto"
+          tail -n 12 "$RUNNER_TEMP/step.log"
+          "${clean_env[@]}" "$tool" new Auto --path "$RUNNER_TEMP/auto" >"$RUNNER_TEMP/step.log" 2>&1
           py="$(command -v python3 || command -v python)"
           "$py" - "$RUNNER_TEMP/auto/Auto/Config/BuildConfig.json" <<'EOF'
           import json, sys
