@@ -53,7 +53,12 @@ mkdir -p "$dir"; dir="$(cd "$dir" && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/beast-android.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
-download() { echo "Downloading $1"; curl -fL --retry 3 --progress-bar -o "$2" "$1"; }
+download() {
+    echo "Downloading $1"
+    # --retry-all-errors: also DNS and connection failures, 5 seconds apart.
+    curl -fL --retry 3 --retry-delay 5 --retry-all-errors --progress-bar -o "$2" "$1" ||
+        { echo "Download failed: $1. The cause is most likely the network: check the connection to $(echo "$1" | sed -E 's#^[a-z]+://([^/]+).*#\1#') (DNS, proxy, firewall)."; return 1; }
+}
 sha() { if command -v sha"$1"sum >/dev/null; then sha"$1"sum "$2" | cut -d' ' -f1; else shasum -a "$1" "$2" | cut -d' ' -f1; fi; }
 java_major() { "$1/bin/java" -version 2>&1 | sed -nE 's/.*version "(1\.)?([0-9]+).*/\2/p' | head -n 1; }
 
@@ -144,13 +149,31 @@ fi
 if ! [[ "$tools_major" =~ ^[0-9]+$ && "$tools_major" -ge 23 ]]; then
     yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --licenses >/dev/null || true
 fi
-if [[ ${#packages[@]} -gt 0 ]]; then
-    echo "Installing: ${packages[*]}"
-    yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" --install "${packages[@]}" | grep -v '^\[=*' || true
+# Network or DNS failures ("An error occurred while preparing SDK package ...: dl.google.com") leave
+# packages out: the missing ones are installed again, up to 3 attempts, 5 then 10 seconds apart.
+# BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS=<n> (tests) sends the first n attempts through an unreachable proxy.
+attempt=0
+while [[ ${#packages[@]} -gt 0 ]]; do
+    attempt=$((attempt + 1))
+    if [[ $attempt -eq 1 ]]; then echo "Installing: ${packages[*]}"; else echo "Installing (attempt $attempt of 3): ${packages[*]}"; fi
+    # (macOS bash 3.2 with set -u: an empty array is expanded as ${a[@]+"${a[@]}"}.)
+    proxy=(); [[ $attempt -le ${BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS:-0} ]] && proxy=(--proxy=http --proxy_host=127.0.0.1 --proxy_port=9)
+    yes 2>/dev/null | "$sdkmanager" --sdk_root="$dir" ${proxy[@]+"${proxy[@]}"} --install "${packages[@]}" 2>&1 | grep -v '^\[=*' || true
+    missing=(); missing_markers=()
     for i in "${!packages[@]}"; do
-        [[ -e "$dir/${markers[$i]}" ]] || { echo "sdkmanager did not install ${packages[$i]} ($dir/${markers[$i]} is missing)"; exit 1; }
+        [[ -e "$dir/${markers[$i]}" ]] || { missing+=("${packages[$i]}"); missing_markers+=("${markers[$i]}"); }
     done
-fi
+    packages=(${missing[@]+"${missing[@]}"}); markers=(${missing_markers[@]+"${missing_markers[@]}"})
+    [[ ${#packages[@]} -eq 0 ]] && break
+    if [[ $attempt -ge 3 ]]; then
+        echo "sdkmanager did not install ${packages[*]} after 3 attempts ($dir/${markers[0]} is missing)."
+        echo "The cause is most likely the network: check the connection to dl.google.com (DNS, proxy, firewall) and run the script again."
+        exit 1
+    fi
+    pause=$((attempt * 5))
+    echo "Not installed: ${packages[*]} (probably a network error reaching dl.google.com); retrying in $pause s..."
+    sleep "$pause"
+done
 
 # --- AVD -----------------------------------------------------------------------------------------
 if [[ $emulator == 1 ]]; then
