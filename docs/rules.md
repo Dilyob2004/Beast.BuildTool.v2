@@ -111,7 +111,7 @@ LinkerArguments.Add("...");                     // добавляется в к�
 | `ProjectDirectory`, `ProjectSourceDirectory` | корень проекта, чьи правила вычисляются (у внешнего проекта — его корень) |
 | `BuildProjectDirectory`, `ExternalProjectName` | собираемое приложение; имя внешнего проекта (или `null`) |
 | `AndroidNdkRoot` | каталог используемого NDK (с версией); `null` вне Android |
-| `AndroidSdkRoot` | Android SDK (`android.sdkRoot` или `ANDROID_HOME`), если существует; `null` вне Android |
+| `AndroidSdkRoot` | Android SDK, найденный как при сборке (`android.sdkRoot`, `ANDROID_HOME`, стандартный путь); `null` вне Android |
 | `AndroidApiLevel`, `AndroidAbi` | API level цели компилятора (`android.minSdk`) и ABI; `null` вне Android |
 
 `AdditionalSources` компилирует файлы вне каталога модуля как часть модуля (абсолютный путь,

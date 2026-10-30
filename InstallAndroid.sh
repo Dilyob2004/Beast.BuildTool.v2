@@ -209,10 +209,10 @@ if [[ $profile == 1 ]]; then
     fi
 fi
 echo
-echo "Beast uses (defaults from ANDROID_HOME and JAVA_HOME$([[ $profile == 0 ]] && echo '; set them or Config/BuildConfig.json'):"
+echo "Beast finds these by itself (default locations, no new terminal needed):"
 echo "  android.sdkRoot  = $dir"
 echo "  android.ndkRoot  = $dir/ndk   (newest; this script installed $ndk)"
 echo "  android.javaHome = $jdk"
 [[ $emulator == 1 ]] && echo "  android.defaultAvd = $AVD   (ANDROID_AVD_HOME=$ANDROID_AVD_HOME)"
-[[ $profile == 0 ]] && printf '\nConfig/BuildConfig.json:\n  "android": { "sdkRoot": "%s", "ndkRoot": "%s/ndk", "javaHome": "%s"%s }\n' "$dir" "$dir" "$jdk" "$([[ $emulator == 1 ]] && echo ", \"defaultAvd\": \"$AVD\"")"
+[[ $profile == 0 ]] && printf '\nConfig/BuildConfig.json (only if Beast should use other locations):\n  "android": { "sdkRoot": "%s", "ndkRoot": "%s/ndk", "javaHome": "%s"%s }\n' "$dir" "$dir" "$jdk" "$([[ $emulator == 1 ]] && echo ", \"defaultAvd\": \"$AVD\"")"
 exit 0

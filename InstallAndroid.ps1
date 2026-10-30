@@ -202,14 +202,14 @@ try {
         Write-Host 'Set ANDROID_HOME and JAVA_HOME and added platform-tools to the user PATH (open a new terminal).'
     }
     Write-Host ''
-    Write-Host "Beast uses (defaults from ANDROID_HOME and JAVA_HOME$(if ($NoProfile) { '; set them or Config/BuildConfig.json' })):"
+    Write-Host 'Beast finds these by itself (default locations, no new terminal needed):'
     Write-Host "  android.sdkRoot  = $Dir"
     Write-Host "  android.ndkRoot  = $(Join-Path $Dir 'ndk')   (newest; this script installed $Ndk)"
     Write-Host "  android.javaHome = $jdk"
     if ($Emulator) { Write-Host "  android.defaultAvd = $Avd" }
     if ($NoProfile) {
         $json = @{ sdkRoot = $Dir; ndkRoot = (Join-Path $Dir 'ndk'); javaHome = $jdk } | ConvertTo-Json -Compress
-        Write-Host "`nConfig/BuildConfig.json:`n  `"android`": $json"
+        Write-Host "`nConfig/BuildConfig.json (only if Beast should use other locations):`n  `"android`": $json"
     }
 } finally {
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

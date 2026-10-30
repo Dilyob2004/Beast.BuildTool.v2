@@ -467,5 +467,72 @@ Test("locks", () =>
     exclusive.Result.Dispose();
 });
 
+Test("Android toolchain discovery", () =>
+{
+    var android = BuildConfigManager.Config.Android;
+    var saved = (android.JavaHome, android.SdkRoot, android.NdkRoot, android.NdkVersion);
+    string[] variables = ["JAVA_HOME", "ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_NDK_HOME", "ANDROID_NDK_ROOT"];
+    var env = variables.ToDictionary(v => v, Environment.GetEnvironmentVariable);
+    try
+    {
+        string tools = Path.Combine(root, "Toolchain");
+        string Jdk(string name, string version)
+        {
+            string home = Path.Combine(tools, name);
+            Write(Path.Combine(home, "bin", HostPlatform.Executable("java")), "");
+            Write(Path.Combine(home, "release"), $"JAVA_VERSION=\"{version}\"\n");
+            return home;
+        }
+        string jdk17 = Jdk("jdk17", "17.0.12"), jdk21 = Jdk("jdk21", "21.0.4"), jdk11 = Jdk("jdk11", "11.0.2");
+        Check(AndroidToolchain.IsJdk17(jdk17) && AndroidToolchain.IsJdk17(jdk21) && !AndroidToolchain.IsJdk17(jdk11), "JDK version check");
+        Check(!AndroidToolchain.IsJdk17(Path.Combine(tools, "missing")), "A missing JDK accepted");
+
+        // Configured and valid: used as is; configured but stale (the old Android Studio path): JAVA_HOME wins.
+        android.JavaHome = jdk21;
+        Environment.SetEnvironmentVariable("JAVA_HOME", jdk17);
+        Check(AndroidToolchain.FindJavaHome(out _) == jdk21, "android.javaHome not used");
+        android.JavaHome = Path.Combine(tools, "Android Studio.app", "Contents", "jbr", "Contents", "Home");
+        Check(AndroidToolchain.FindJavaHome(out _) == jdk17, "stale android.javaHome: JAVA_HOME not used");
+        android.JavaHome = jdk11;
+        Check(AndroidToolchain.FindJavaHome(out _) == jdk17, "JDK 11 in android.javaHome accepted");
+        android.JavaHome = "";
+        Environment.SetEnvironmentVariable("JAVA_HOME", Path.Combine(tools, "missing"));
+        if (AndroidToolchain.FindJavaHome(out var searched) is null)
+            Check(searched.Any(s => s.StartsWith("JAVA_HOME:")) && searched.Any(s => s.StartsWith("InstallAndroid:")), "searched list: " + string.Join("; ", searched));
+        Check(AndroidToolchain.JavaHomeCandidates().Select(c => c.Source).Take(2).SequenceEqual(new[] { "JAVA_HOME", "InstallAndroid" }), "JDK search order");
+
+        // SDK: a missing configured path falls back to ANDROID_HOME.
+        string sdk = Path.Combine(tools, "sdk");
+        Directory.CreateDirectory(sdk);
+        android.SdkRoot = Path.Combine(tools, "no-sdk");
+        Environment.SetEnvironmentVariable("ANDROID_HOME", sdk);
+        Environment.SetEnvironmentVariable("ANDROID_SDK_ROOT", null);
+        Check(AndroidToolchain.FindSdkRoot(out _) == sdk, "ANDROID_HOME not used for a missing android.sdkRoot");
+        android.SdkRoot = "";
+        Environment.SetEnvironmentVariable("ANDROID_HOME", null);
+        Check(AndroidToolchain.JavaHomeCandidates().Count > 0 && AndroidToolchain.SdkRootOrDefault().Length > 0, "default SDK path");
+
+        // NDK: <sdk>/ndk with the newest version, android.ndkVersion selects one, nothing found: a clear error.
+        foreach (string version in new[] { "26.1.10909125", "27.2.12479018" })
+            Write(Path.Combine(sdk, "ndk", version, "source.properties"), $"Pkg.Revision = {version}\n");
+        Environment.SetEnvironmentVariable("ANDROID_HOME", sdk);
+        Environment.SetEnvironmentVariable("ANDROID_NDK_HOME", null);
+        Environment.SetEnvironmentVariable("ANDROID_NDK_ROOT", null);
+        android.NdkRoot = ""; android.NdkVersion = "";
+        Check(AndroidToolchain.RequireNdk() == Path.Combine(sdk, "ndk", "27.2.12479018"), "newest NDK not chosen");
+        android.NdkVersion = "26.1.10909125";
+        Check(AndroidToolchain.RequireNdk() == Path.Combine(sdk, "ndk", "26.1.10909125"), "android.ndkVersion ignored");
+        android.NdkVersion = "99.0.0";
+        Expect(() => AndroidToolchain.RequireNdk(), "Android NDK not found");
+        Expect(() => AndroidToolchain.RequireNdk(), "Searched:");
+        Expect(() => AndroidToolchain.RequireNdk(), "android.ndkRoot");
+    }
+    finally
+    {
+        (android.JavaHome, android.SdkRoot, android.NdkRoot, android.NdkVersion) = saved;
+        foreach (var (name, value) in env) Environment.SetEnvironmentVariable(name, value);
+    }
+});
+
 Console.WriteLine(failures == 0 ? $"PASS: model tests ({root})" : $"{failures} model test(s) failed ({root})");
 return failures == 0 ? 0 : 1;

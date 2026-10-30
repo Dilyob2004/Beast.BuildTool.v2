@@ -28,8 +28,8 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   На хосте без MSVC `"Windows"` заменяется хостом (Linux/Mac). Visual Studio-файлы генерируются
   только на Windows; `compile_commands.json` — везде.
 - Android на Linux/macOS: NDK `prebuilt/linux-x86_64` / `darwin-x86_64`, `gradlew`, `adb`, `emulator`
-  без `.exe`; SDK по умолчанию из `ANDROID_HOME`/`ANDROID_SDK_ROOT` или стандартного пути Android
-  Studio, Java — `JAVA_HOME` или JBR Android Studio.
+  без `.exe`. JDK, SDK и NDK ищутся автоматически (конфиг → переменные окружения → каталоги
+  `InstallAndroid` и Android Studio), порядок — в install.md, «Где Beast ищет JDK, SDK и NDK».
 - Ассемблер: `.asm` — MASM (`ml64`, на ARM64 `armasm64`), только Windows; `.S` (с препроцессором и
   depfile) и `.s` — Clang/GCC, на Android, Linux и macOS. Файлы ассемблера не входят в Unity/PCH и не попадают
   в compile cache; в `.asm` передаются только простые определения `NAME`/`NAME=value`.

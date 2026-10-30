@@ -117,12 +117,30 @@ powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1 -Emulator
   установлены и что причина, вероятно, в доступе к `dl.google.com` (DNS, прокси, firewall).
 - `ANDROID_HOME`, `JAVA_HOME` и `platform-tools` в `PATH` прописываются в профиль shell
   (`~/.zshrc`, `~/.bashrc`) или в переменные окружения пользователя Windows; `--no-profile`/`-NoProfile`
-  отключает это. В конце скрипт печатает пути, которые подхватит Beast (по умолчанию `android.sdkRoot` —
-  `ANDROID_HOME`, `android.ndkRoot` — его `ndk/` с новейшей версией, `android.javaHome` — `JAVA_HOME`), а
-  без профиля — готовый фрагмент `Config/BuildConfig.json`.
+  отключает это. Перезапускать терминал не нужно: Beast сам находит JDK и SDK, поставленные в каталоги по
+  умолчанию (см. ниже). В конце скрипт печатает найденные пути, а без профиля — фрагмент
+  `Config/BuildConfig.json` (нужен, только если SDK/JDK стоят не в каталогах по умолчанию).
 
-Генератор создаёт конфиг путей Java/Android SDK/NDK:
-`Projects/HelloApp/Config/BuildConfig.json`. При необходимости настройте
+### Где Beast ищет JDK, SDK и NDK
+
+`android.javaHome`, `android.sdkRoot` и `android.ndkRoot` в новых проектах пустые — это «искать
+автоматически». Непустое значение используется, если каталог существует; иначе Beast пишет
+предупреждение и ищет дальше. Берётся первый существующий вариант:
+
+- **JDK 17+**: `android.javaHome` → `JAVA_HOME` → JDK от `InstallAndroid`
+  (macOS `~/Library/Java/JavaVirtualMachines/beast-temurin-17/Contents/Home`, Linux
+  `~/.local/share/beast/jdk-17`, Windows `%LOCALAPPDATA%\Beast\jdk-17`) → JBR Android Studio → на macOS
+  `/usr/libexec/java_home -v 17+`.
+- **SDK**: `android.sdkRoot` → `ANDROID_HOME` → `ANDROID_SDK_ROOT` → стандартный путь Android Studio /
+  `InstallAndroid` (`~/Library/Android/sdk`, `~/Android/Sdk`, `%LOCALAPPDATA%\Android\Sdk`).
+- **NDK**: `android.ndkRoot` (сам NDK или каталог версий) → `ANDROID_NDK_HOME`/`ANDROID_NDK_ROOT` →
+  `<SDK>/ndk/`; версия — `android.ndkVersion`, иначе новейшая.
+
+Если что-то не найдено, сборка Android-приложения останавливается до компиляции с сообщением: что не
+найдено, где искали и как исправить (`InstallAndroid` или путь в `Config/BuildConfig.json`).
+
+Генератор создаёт `Projects/HelloApp/Config/BuildConfig.json`; пути Java/Android SDK/NDK в нём пустые
+(поиск автоматический, см. «Где Beast ищет JDK, SDK и NDK»). При необходимости задайте
 `android.javaHome`, `android.sdkRoot`, `android.ndkRoot`, `android.ndkVersion`.
 По умолчанию Android API 29/target 35; эти значения Gradle берёт из конфига
 (см. «Android: Gradle из конфигурации»).

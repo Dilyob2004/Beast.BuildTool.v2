@@ -68,9 +68,7 @@ namespace Beast.BuildTool
                 AndroidNdkRoot = android.NdkRoot;
                 AndroidApiLevel = android.ApiLevel;
                 AndroidAbi = android.Abi;
-                string sdk = System.Environment.ExpandEnvironmentVariables(BuildConfigManager.Config.Android.SdkRoot ?? "");
-                if (string.IsNullOrWhiteSpace(sdk)) sdk = HostPlatform.DefaultAndroidSdk();
-                AndroidSdkRoot = !string.IsNullOrWhiteSpace(sdk) && System.IO.Directory.Exists(sdk) ? System.IO.Path.GetFullPath(sdk) : null;
+                AndroidSdkRoot = AndroidToolchain.FindSdkRoot(out _) is { } sdk ? System.IO.Path.GetFullPath(sdk) : null;
             }
         }
     }

@@ -39,7 +39,7 @@ internal static class AndroidRunner
     internal static async Task<(string Adb, string Serial)> ConnectAsync(string? requestedAvd, string? requestedDevice)
     {
         AndroidBuildConfig android = BuildConfigManager.Config.Android;
-        string sdkRoot = Environment.ExpandEnvironmentVariables(android.SdkRoot);
+        string sdkRoot = AndroidToolchain.SdkRootOrDefault();
         string adb = Path.Combine(sdkRoot, "platform-tools", HostPlatform.Executable("adb"));
         string emulator = Path.Combine(sdkRoot, "emulator", HostPlatform.Executable("emulator"));
         if (!File.Exists(adb)) throw new FileNotFoundException("Android Debug Bridge (adb) was not found.", adb);
