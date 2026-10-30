@@ -278,6 +278,8 @@ Test("watch filters, build tool version", () =>
         Check(!Watcher.IsRelevant(ignored), "ignored: " + ignored);
     Check(BuildToolVersion.Parse("2.1.0-dev+abc1234") == new Version(2, 1, 0) && BuildToolVersion.Parse("v3") == new Version(3, 0, 0), "version parsing");
     BuildToolVersion.Require("2.1.0", "BuildConfig.json", "2.1.0-dev+abc");
+    BuildToolVersion.Require("2.1.0", "BuildConfig.json", "2.1.0");              // a build on tag v2.1.0
+    BuildToolVersion.Require("2.1.0", "BuildConfig.json", "2.1.0-dev.3+1a2b3c4"); // 3 commits after it
     BuildToolVersion.Require("", "BuildConfig.json", "1.0.0");
     Expect(() => BuildToolVersion.Require("2.2", "BuildConfig.json", "2.1.9"), "needs Beast BuildTool 2.2 or newer");
     Expect(() => BuildToolVersion.Require("latest", "BuildConfig.json", "2.1.0"), "is not a version");
