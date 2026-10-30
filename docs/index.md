@@ -19,7 +19,7 @@
 - **Модули C++20**: `.ixx`/`.cppm`, разделы, `import` между целями, `import std` (MSVC, Clang, GCC).
 - **Шаблоны `new`**: консольная программа (Windows, Linux), NativeActivity (Android), AppKit (macOS),
   UIKit (iOS).
-- **Команды** `build`, `run`, `test`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
+- **Команды** `build`, `run`, `test`, `watch`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
 - **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
   продолжение после ошибок, общий кеш и worker.
@@ -40,6 +40,7 @@
 9. [IDE и редакторы](ide.md)
 10. [Ускорение сборки](acceleration.md)
 11. [Проверки и CI](testing.md)
+12. [Пересборка при изменениях (watch) и версии](watch.md)
 
 ## Ограничения
 

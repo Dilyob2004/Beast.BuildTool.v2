@@ -270,6 +270,19 @@ Test("toolchain paths in ModulesInfo, AdditionalSources", () =>
     Expect(() => plan.AdditionalSources(glue), "not found");
 });
 
+Test("watch filters, build tool version", () =>
+{
+    // Paths relative to the watched directory: a project under C:\build\... is still watched.
+    Check(Watcher.IsRelevant("Core/Core.cpp") && Watcher.IsRelevant(@"Core\Public\Core.h"), "sources are relevant");
+    foreach (string ignored in new[] { "Core/Intermediate/x.o", ".git/HEAD", "Core/.Core.cpp.swp", "Core/Core.cpp~", "x.tmp", "Core/4913", @"Game\bin\x.dll" })
+        Check(!Watcher.IsRelevant(ignored), "ignored: " + ignored);
+    Check(BuildToolVersion.Parse("2.1.0-dev+abc1234") == new Version(2, 1, 0) && BuildToolVersion.Parse("v3") == new Version(3, 0, 0), "version parsing");
+    BuildToolVersion.Require("2.1.0", "BuildConfig.json", "2.1.0-dev+abc");
+    BuildToolVersion.Require("", "BuildConfig.json", "1.0.0");
+    Expect(() => BuildToolVersion.Require("2.2", "BuildConfig.json", "2.1.9"), "needs Beast BuildTool 2.2 or newer");
+    Expect(() => BuildToolVersion.Require("latest", "BuildConfig.json", "2.1.0"), "is not a version");
+});
+
 Test("Xcode and VS Code generation", () =>
 {
     // The Android platform stands in for macOS: generation only lists targets and paths.

@@ -9,6 +9,10 @@ public sealed class BuildConfig
     [JsonPropertyName("defaultConfiguration")]
     public string DefaultConfiguration { get; set; } = "Debug";
 
+    /// <summary>Oldest Beast BuildTool that can build this project ("2.1.0"); an older tool stops with an error.</summary>
+    [JsonPropertyName("minimumBuildToolVersion")]
+    public string MinimumBuildToolVersion { get; set; } = "";
+
     /// <summary>
     /// Other Beast projects whose targets and modules this project uses: their Source/*.Target.cs
     /// targets can be TargetDependencies, their modules Public/PrivateDependencies. Paths are relative
@@ -257,6 +261,7 @@ public static class BuildConfigManager
             // signing identity with the default debug key.
             throw new InvalidOperationException($"Cannot read '{configPath}'. Fix the build configuration before building.", ex);
         }
+        BuildToolVersion.Require(_config.MinimumBuildToolVersion, configPath);
     }
 
     public static void CreateDefault(string projectPath)

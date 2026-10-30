@@ -25,7 +25,7 @@ Windows, Linux, macOS, iOS и Android, сама исполняет граф сб
 - **Модули C++20**: `.ixx`/`.cppm`, разделы, `import` между целями, `import std` (MSVC, Clang, GCC).
 - **Шаблоны `new`**: консольная программа (Windows, Linux), NativeActivity (Android), AppKit (macOS),
   UIKit (iOS).
-- **Команды** `build`, `run`, `test`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
+- **Команды** `build`, `run`, `test`, `watch`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
 - **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
   продолжение после ошибок, общий кеш и worker.
@@ -85,6 +85,7 @@ Android-тулчейн (JDK 17, SDK, NDK, по желанию эмулятор) 
 | [Генерация кода, ресурсы и runtime-файлы](docs/build-steps.md) | шаги сборки, ресурсы приложения для всех платформ, файлы рядом с программой и внутри APK |
 | [Тесты, установка и пакеты](docs/packaging.md) | `test`, `install`, `package`, CMake и pkg-config |
 | [vcpkg и Conan](docs/packages.md) | зависимости из пакетных менеджеров |
+| [Пересборка при изменениях и версии](docs/watch.md) | `watch`, `--on-success`, версионные библиотеки для горячей подмены, `minimumBuildToolVersion` |
 | [IDE и редакторы](docs/ide.md) | Visual Studio, Xcode, VS Code, CLion, clangd |
 | [Ускорение сборки](docs/acceleration.md) | кеш, общий кеш, worker |
 | [Проверки и CI](docs/testing.md) | тесты Beast, GitHub Actions, выпуск версий |

@@ -287,6 +287,48 @@ Beast @('build', $ui, '--config', 'Debug')
 Check ((Output (Join-Path $ui 'Binaries/Windows/Debug/MyUi.exe')) -eq 'MyUi template 42 22') 'project from the template'
 Write-Host 'PASS: custom templates (new --template)'
 
+# watch: initial build, rebuild after a change, numbered DLL copies (--versioned), --on-success.
+$watchProject = Join-Path $testRoot 'Watch'
+$savedProject = $project; $project = $watchProject
+Beast @('new', 'Watch', '--path', $testRoot)
+Remove-Item -Recurse -Force (Join-Path $watchProject 'Source')
+Module 'WatchLib' 'PublicIncludePaths.Add("Public");'
+Put 'Source/WatchLib/Public/WatchLib.h' "#pragma once`nWATCHLIB_API int WatchValue();`n"
+Put 'Source/WatchLib/WatchLib.cpp' "#include `"WatchLib.h`"`nint WatchValue() { return 1; }`n"
+Module 'WatchApp' 'PrivateDependencies.Add("WatchLib");'
+Put 'Source/WatchApp/Main.cpp' "#include `"WatchLib.h`"`n#include <cstdio>`nint main() { std::printf(`"watch %d\n`", WatchValue()); return 0; }`n"
+Target 'WatchLib' 'Type = TargetType.SharedLibrary; Modules.Add("WatchLib");'
+Target 'Watch' 'Modules.Add("WatchApp"); TargetDependencies.Add("WatchLib");'
+$hooks = Join-Path $testRoot 'watch-hooks.txt'
+$watch = Start-Process -FilePath $tool -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $testRoot 'watch.log') -RedirectStandardError (Join-Path $testRoot 'watch.err') `
+    -ArgumentList @('watch', "`"$watchProject`"", '--target', 'Watch', '--config', 'Debug', '--versioned', '--debounce', '200', '--on-success', "`"echo %BEAST_BUILD% %BEAST_TARGET%>>..\watch-hooks.txt`"")   # runs in the project directory
+function WaitFor([scriptblock]$Condition, [string]$Message) {
+    for ($i = 0; $i -lt 240; $i++) { if (& $Condition) { return }; Start-Sleep -Milliseconds 500 }
+    throw "$Message`n$((Get-Content (Join-Path $testRoot 'watch.log') | Where-Object { $_ -notmatch 'VisualStudioInstance' } | Select-Object -Last 40) -join "`n")"
+}
+try {
+    # Build numbers depend on when Windows reports changes; the checks look at results.
+    WaitFor { (Test-Path $hooks) -and ((Get-Content $hooks) -match ' Watch\s*$') } 'watch: initial build or --on-success'
+    $hot = Join-Path (Binaries 'Debug') 'Hot'
+    $latestMatches = {
+        $latest = Join-Path $hot 'WatchLib.latest'
+        (Test-Path $latest) -and ((Get-FileHash (Join-Path $hot (Get-Content $latest).Trim())).Hash -eq (Get-FileHash (Join-Path (Binaries 'Debug') 'WatchLib.dll')).Hash)
+    }
+    Check (Test-Path (Join-Path $hot 'WatchLib.1.dll')) 'watch --versioned: WatchLib.1.dll'
+    # The program is not started while watching: a running Watch.exe would lock WatchLib.dll for the linker.
+    $dll = Join-Path (Binaries 'Debug') 'WatchLib.dll'
+    $firstHash = (Get-FileHash $dll).Hash
+    Start-Sleep -Seconds 1
+    Put 'Source/WatchLib/WatchLib.cpp' "#include `"WatchLib.h`"`nint WatchValue() { return 2; }`n"
+    WaitFor { ((Get-FileHash $dll).Hash -ne $firstHash) -and (& $latestMatches) -and @(Get-Content $hooks).Count -ge 2 } 'watch: no rebuild after a source change'
+} finally {
+    if (-not $watch.HasExited) { Stop-Process -Id $watch.Id -Force }
+    $project = $savedProject
+}
+Check ((Output (Join-Path $watchProject 'Binaries/Windows/Debug/Watch.exe')) -eq 'watch 2') 'watch: rebuilt program'
+
+Pass 'watch (rebuild, --versioned, --on-success)'
+
 # Package managers: a separate project each, so their manifests do not affect the tests above.
 function PackageProject([string]$Name) {
     $script:project = Join-Path $testRoot $Name
