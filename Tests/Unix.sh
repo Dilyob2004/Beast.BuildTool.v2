@@ -579,6 +579,41 @@ check '! "${tool[@]}" build "$wp" --target Watch >"$work/last.log" 2>&1 && grep 
 printf '%s' "$config_saved" >"$wp/Config/BuildConfig.json"
 pass 'minimumBuildToolVersion'
 
+# Version of a build from source: git describe of Beast's own repository (also as a submodule of
+# another repository whose tags must not count); minimumBuildToolVersion compares that version.
+if command -v git >/dev/null && git -C "$root" rev-parse HEAD >/dev/null 2>&1 && command -v dotnet >/dev/null; then
+    gitc() { git -c user.name=Beast -c user.email=beast@example.com -c protocol.file.allow=always "$@"; }
+    vrepo="$work/VersionRepo"; mkdir -p "$vrepo"
+    git -C "$root" archive HEAD | tar -x -C "$vrepo"
+    gitc -C "$vrepo" init -q && gitc -C "$vrepo" add -A && gitc -C "$vrepo" commit -q -m "fixture" && gitc -C "$vrepo" tag v9.8.7
+    vbuild() { dotnet build "$1/BuildTool/Beast.BuildTool.csproj" -c Release -nologo -v q >"$work/last.log" 2>&1; }
+    check 'vbuild "$vrepo" && [[ "$("$vrepo/BuildTool/bin/Beast.BuildTool" version)" == "Beast BuildTool 9.8.7" ]]' 'version of a build on tag v9.8.7'
+    min_config() { python3 - "$template/Config/BuildConfig.json" "$1" <<'EOF2'
+import json, sys
+c = json.load(open(sys.argv[1])); c["minimumBuildToolVersion"] = sys.argv[2]; json.dump(c, open(sys.argv[1], "w"), indent=2)
+EOF2
+    }
+    min_config 9.8.7
+    check '"$vrepo/BuildTool/bin/Beast.BuildTool" build "$template" --config Debug >"$work/last.log" 2>&1' 'a v9.8.7 build does not satisfy minimumBuildToolVersion 9.8.7'
+    min_config 9.8.8
+    check '! "$vrepo/BuildTool/bin/Beast.BuildTool" build "$template" --config Debug >"$work/last.log" 2>&1 && grep -q "needs Beast BuildTool 9.8.8" "$work/last.log"' 'minimumBuildToolVersion 9.8.8 accepted by 9.8.7'
+    gitc -C "$vrepo" commit -q --allow-empty -m "after the tag"
+    hash="$(git -C "$vrepo" rev-parse --short=7 HEAD)"
+    check 'vbuild "$vrepo" && [[ "$("$vrepo/BuildTool/bin/Beast.BuildTool" version)" == "Beast BuildTool 9.8.7-dev.1+$hash" ]]' 'version one commit after the tag'
+    min_config 9.8.7
+    check '"$vrepo/BuildTool/bin/Beast.BuildTool" build "$template" --config Debug >"$work/last.log" 2>&1' 'a 9.8.7-dev build does not satisfy 9.8.7'
+    # Submodule of an "SDK" repository tagged v1.0.0: Beast's own tag decides.
+    sdkrepo="$work/VersionSdk"; mkdir -p "$sdkrepo"
+    gitc -C "$sdkrepo" init -q && gitc -C "$sdkrepo" commit -q --allow-empty -m sdk && gitc -C "$sdkrepo" tag v1.0.0
+    gitc -C "$sdkrepo" submodule add -q "$vrepo" Beast && gitc -C "$sdkrepo/Beast" checkout -q v9.8.7
+    check 'vbuild "$sdkrepo/Beast" && [[ "$("$sdkrepo/Beast/BuildTool/bin/Beast.BuildTool" version)" == "Beast BuildTool 9.8.7" ]]' 'version of Beast as a submodule'
+    # A plain copy inside the SDK repository (no .git of its own) does not take the SDK's tags.
+    mkdir -p "$sdkrepo/Copy" && git -C "$vrepo" archive HEAD | tar -x -C "$sdkrepo/Copy"
+    check 'vbuild "$sdkrepo/Copy" && [[ "$("$sdkrepo/Copy/BuildTool/bin/Beast.BuildTool" version)" == "Beast BuildTool 2.0.0-dev"* ]]' 'a copy inside another repository took its tags'
+    min_config ""
+    pass 'version from git tags (tag, after the tag, submodule, copy; minimumBuildToolVersion)'
+else skipped+=('version from git tags (no git repository or dotnet)'); fi
+
 # Android (optional): the same project as an APK, built on this Linux/macOS host.
 if [[ "${1:-}" == --android ]]; then
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"

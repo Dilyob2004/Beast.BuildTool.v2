@@ -12,7 +12,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
-    <!-- Release builds pass -p:Version=<tag>; local builds are "2.0.0-dev". -->
+    <!-- Version: release builds pass -p:Version=<tag> (and BeastVersionFromGit=false); builds from
+         source take it from the repository's tags (target BeastVersionFromGit below); without git or
+         tags it stays "2.0.0-dev". -->
     <Version>2.0.0-dev</Version>
     <Product>Beast BuildTool</Product>
   </PropertyGroup>
@@ -32,5 +34,51 @@
   <ItemGroup>
     <None Include="Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!--
+    Version of a build from source, from 'git describe' (tags) of the repository that contains this
+    project (also when it is a git submodule of another repository, e.g. Beast SDK):
+      on tag v2.1.0: 2.1.0
+      3 commits after v2.1.0: 2.1.0-dev.3+(hash); minimumBuildToolVersion compares 2.1.0
+      no git or no v* tag: 2.0.0-dev (the value above)
+    Only this repository's own tags count: a copy of the sources inside another repository (no .git of
+    its own) keeps 2.0.0-dev instead of taking that repository's tags.
+  -->
+  <Target Name="BeastVersionFromGit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;GetPackageVersion"
+          Condition="'$(BeastVersionFromGit)' != 'false'">
+    <PropertyGroup>
+      <_BeastRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/..').Replace('\', '/').TrimEnd('/'))</_BeastRepositoryRoot>
+    </PropertyGroup>
+    <Exec Command="git rev-parse --show-toplevel" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          IgnoreExitCode="true" EchoOff="true" StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_BeastGitTop" />
+      <Output TaskParameter="ExitCode" PropertyName="_BeastGitTopExit" />
+    </Exec>
+    <PropertyGroup>
+      <_BeastOwnRepository Condition="'$(_BeastGitTopExit)' == '0' and '$(_BeastGitTop.Replace(`\`, `/`).TrimEnd(`/`).ToLowerInvariant())' == '$(_BeastRepositoryRoot.ToLowerInvariant())'">true</_BeastOwnRepository>
+    </PropertyGroup>
+    <Exec Condition="'$(_BeastOwnRepository)' == 'true'" Command="git describe --tags --long --match &quot;v[0-9]*&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" IgnoreExitCode="true" EchoOff="true"
+          StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_BeastDescribe" />
+      <Output TaskParameter="ExitCode" PropertyName="_BeastDescribeExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(_BeastOwnRepository)' == 'true' and '$(_BeastDescribeExit)' == '0' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_BeastDescribe)', '^v\d+\.\d+\.\d+-\d+-g[0-9a-f]+$'))">
+      <_BeastTag>$([System.Text.RegularExpressions.Regex]::Replace('$(_BeastDescribe)', '^v(\d+\.\d+\.\d+)-(\d+)-g([0-9a-f]+)$', '$1'))</_BeastTag>
+      <_BeastCommits>$([System.Text.RegularExpressions.Regex]::Replace('$(_BeastDescribe)', '^v(\d+\.\d+\.\d+)-(\d+)-g([0-9a-f]+)$', '$2'))</_BeastCommits>
+      <_BeastHash>$([System.Text.RegularExpressions.Regex]::Replace('$(_BeastDescribe)', '^v(\d+\.\d+\.\d+)-(\d+)-g([0-9a-f]+)$', '$3'))</_BeastHash>
+      <VersionPrefix>$(_BeastTag)</VersionPrefix>
+      <VersionSuffix Condition="'$(_BeastCommits)' != '0'">dev.$(_BeastCommits)</VersionSuffix>
+      <VersionSuffix Condition="'$(_BeastCommits)' == '0'"></VersionSuffix>
+      <Version Condition="'$(_BeastCommits)' == '0'">$(_BeastTag)</Version>
+      <Version Condition="'$(_BeastCommits)' != '0'">$(_BeastTag)-dev.$(_BeastCommits)</Version>
+      <InformationalVersion Condition="'$(_BeastCommits)' == '0'">$(_BeastTag)</InformationalVersion>
+      <InformationalVersion Condition="'$(_BeastCommits)' != '0'">$(_BeastTag)-dev.$(_BeastCommits)+$(_BeastHash)</InformationalVersion>
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+      <AssemblyVersion>$(_BeastTag).0</AssemblyVersion>
+      <FileVersion>$(_BeastTag).$(_BeastCommits)</FileVersion>
+    </PropertyGroup>
+    <Message Importance="normal" Text="Beast BuildTool version $(InformationalVersion) (git: $(_BeastDescribe))" Condition="'$(_BeastTag)' != ''" />
+  </Target>
 
 </Project>
