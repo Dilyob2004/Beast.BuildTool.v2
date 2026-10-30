@@ -111,6 +111,10 @@ powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1 -Emulator
   (на Apple Silicon — `arm64-v8a`) и AVD `beast_api34` — для `run --platform Android --avd beast_api34`
   или `"defaultAvd": "beast_api34"`.
 - Уже установленное не скачивается повторно; `--force`/`-Force` переустанавливает всё, включая JDK.
+- Сбои сети: загрузки повторяются до 3 раз, а пакеты, которых после `sdkmanager` нет (например,
+  «An error occurred while preparing SDK package …: dl.google.com»), устанавливаются заново — до 3 попыток
+  с паузой 5 и 10 секунд. Если и третья не удалась, скрипт останавливается и пишет, какие пакеты не
+  установлены и что причина, вероятно, в доступе к `dl.google.com` (DNS, прокси, firewall).
 - `ANDROID_HOME`, `JAVA_HOME` и `platform-tools` в `PATH` прописываются в профиль shell
   (`~/.zshrc`, `~/.bashrc`) или в переменные окружения пользователя Windows; `--no-profile`/`-NoProfile`
   отключает это. В конце скрипт печатает пути, которые подхватит Beast (по умолчанию `android.sdkRoot` —

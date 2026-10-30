@@ -160,6 +160,20 @@ jobs:
             echo "::error title=InstallAndroid.sh::deprecation/Android CLI/metrics message in the output"; exit 1
           fi
           if [[ -e "$HOME/.androidrc" ]] || ls "$RUNNER_TEMP/android" | grep -qix 'android'; then echo "::error title=InstallAndroid.sh::Android CLI was set up"; exit 1; fi
+          # Network failures: a removed package comes back although the first sdkmanager attempt fails
+          # (an unreachable proxy); when every attempt fails the script stops and names dl.google.com.
+          rm -rf "$RUNNER_TEMP/android/platforms/android-35"
+          BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS=1 bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile 2>&1 | tee "$RUNNER_TEMP/retry.log"
+          if ! grep -q "retrying in 5 s" "$RUNNER_TEMP/retry.log" || ! grep -q "attempt 2 of 3" "$RUNNER_TEMP/retry.log" || [[ ! -f "$RUNNER_TEMP/android/platforms/android-35/android.jar" ]]; then
+            echo "::error title=InstallAndroid.sh::no retry after a failed sdkmanager attempt"; exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/android/platforms/android-35"
+          if BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS=3 bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile >"$RUNNER_TEMP/fail.log" 2>&1; then
+            echo "::error title=InstallAndroid.sh::three failed attempts did not fail the script"; exit 1
+          fi
+          grep -q "after 3 attempts" "$RUNNER_TEMP/fail.log" && grep -q "check the connection to dl.google.com" "$RUNNER_TEMP/fail.log" ||
+            { echo "::error title=InstallAndroid.sh::no network hint: $(tail -n 5 "$RUNNER_TEMP/fail.log" | tr '\n' ' ')"; exit 1; }
+          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile >/dev/null
           version="$(JAVA_HOME="$RUNNER_TEMP/jdk$([[ "$RUNNER_OS" == macOS ]] && echo /Contents/Home)" "$RUNNER_TEMP/android/cmdline-tools/19.0/bin/sdkmanager" --version)"
           [[ "$version" == 19.0* ]] || { echo "::error title=InstallAndroid.sh::sdkmanager --version: $version"; exit 1; }
       - name: InstallAndroid.ps1
@@ -176,6 +190,23 @@ jobs:
           # The pinned sdkmanager works on its own: no Android CLI, no usage metrics, no deprecation warnings.
           if ("$first$second" -match '(?i)deprecat|Android CLI|metrics|no longer needed') { Write-Host "::error title=InstallAndroid.ps1::deprecation/Android CLI/metrics message: $($Matches[0])"; exit 1 }
           if ((Test-Path "$env:USERPROFILE\.androidrc") -or (Test-Path "$env:RUNNER_TEMP\android\android.exe")) { Write-Host '::error title=InstallAndroid.ps1::Android CLI was set up'; exit 1 }
+          # Network failures: a removed package comes back although the first sdkmanager attempt fails
+          # (an unreachable proxy); when every attempt fails the script stops and names dl.google.com.
+          $platform = "$env:RUNNER_TEMP\android\platforms\android-35"
+          Remove-Item -Recurse -Force $platform
+          $env:BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS = '1'
+          $retry = ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -NoProfile *>&1 | Out-String
+          Write-Host $retry
+          if (($retry -notmatch 'retrying in 5 s') -or ($retry -notmatch 'attempt 2 of 3') -or -not (Test-Path "$platform\android.jar")) { Write-Host '::error title=InstallAndroid.ps1::no retry after a failed sdkmanager attempt'; exit 1 }
+          Remove-Item -Recurse -Force $platform
+          $env:BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS = '3'
+          $failed = $false
+          try { $fail = ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -NoProfile *>&1 | Out-String } catch { $failed = $true; $fail = "$_" }
+          Write-Host $fail
+          if (-not $failed -and $LASTEXITCODE -eq 0) { Write-Host '::error title=InstallAndroid.ps1::three failed attempts did not fail the script'; exit 1 }
+          if (($fail -notmatch 'after 3 attempts') -or ($fail -notmatch 'check the connection to dl\.google\.com')) { Write-Host '::error title=InstallAndroid.ps1::no network hint'; exit 1 }
+          Remove-Item Env:BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS
+          ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -NoProfile | Out-Null
           $env:JAVA_HOME = "$env:RUNNER_TEMP\jdk"
           $version = (& "$env:RUNNER_TEMP\android\cmdline-tools\19.0\bin\sdkmanager.bat" --version | Out-String).Trim()
           if (-not $version.StartsWith('19.0')) { Write-Host "::error title=InstallAndroid.ps1::sdkmanager --version: $version"; exit 1 }

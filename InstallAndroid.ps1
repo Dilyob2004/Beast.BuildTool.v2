@@ -50,7 +50,15 @@ New-Item -ItemType Directory $work | Out-Null
 
 function Download([string]$Url, [string]$File) {
     Write-Host "Downloading $Url"
-    Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $File
+    # Up to 3 attempts, 5 then 10 seconds apart (network or DNS failures).
+    for ($attempt = 1; ; $attempt++) {
+        try { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $File; return }
+        catch {
+            if ($attempt -ge 3) { throw "Download failed: $Url ($($_.Exception.Message)). The cause is most likely the network: check the connection to $(([Uri]$Url).Host) (DNS, proxy, firewall)." }
+            Write-Host "Download failed ($($_.Exception.Message)); retrying in $($attempt * 5) s..."
+            Start-Sleep -Seconds ($attempt * 5)
+        }
+    }
 }
 function JavaMajor([string]$Root) {
     $java = Join-Path $Root 'bin\java.exe'
@@ -140,17 +148,27 @@ try {
     $ErrorActionPreference = 'Continue'   # sdkmanager prints warnings to stderr; results are checked below
     # Licenses: sdkmanager up to 22.0 needs them accepted first; 23.0+ says --licenses is no longer needed.
     if ($toolsMajor -lt 23) { $yes | & $sdkmanager "--sdk_root=$Dir" --licenses | Out-Null }
-    if ($packages.Count -gt 0) {
-        Write-Host "Installing: $($packages -join ', ')"
+    # Network or DNS failures ("An error occurred while preparing SDK package ...: dl.google.com") leave
+    # packages out: the missing ones are installed again, up to 3 attempts, 5 then 10 seconds apart.
+    # BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS=<n> (tests) sends the first n attempts through an unreachable proxy.
+    $failAttempts = 0; [void][int]::TryParse("$env:BEAST_INSTALL_ANDROID_FAIL_ATTEMPTS", [ref]$failAttempts)
+    for ($attempt = 1; $packages.Count -gt 0; $attempt++) {
+        if ($attempt -eq 1) { Write-Host "Installing: $($packages -join ', ')" } else { Write-Host "Installing (attempt $attempt of 3): $($packages -join ', ')" }
         # A package file, not arguments: cmd.exe (sdkmanager.bat) splits "platforms;android-35" at ';'.
         $packageFile = Join-Path $work 'packages.txt'
         [IO.File]::WriteAllLines($packageFile, [string[]]$packages)
-        $yes | & $sdkmanager "--sdk_root=$Dir" "--package_file=$packageFile" | Where-Object { $_ -notmatch '^\[=*' } | Write-Host
-        $ErrorActionPreference = 'Stop'
-        foreach ($package in $packages) {
-            if (-not (Test-Path (Join-Path $Dir $wanted[$package]))) { throw "sdkmanager did not install $package ($(Join-Path $Dir $wanted[$package]) is missing)" }
+        $proxy = if ($attempt -le $failAttempts) { @('--proxy=http', '--proxy_host=127.0.0.1', '--proxy_port=9') } else { @() }
+        $yes | & $sdkmanager "--sdk_root=$Dir" @proxy "--package_file=$packageFile" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -notmatch '^\[=*' } | Write-Host
+        $packages = @($packages | Where-Object { -not (Test-Path (Join-Path $Dir $wanted[$_])) })
+        if ($packages.Count -eq 0) { break }
+        if ($attempt -ge 3) {
+            $ErrorActionPreference = 'Stop'
+            throw "sdkmanager did not install $($packages -join ', ') after 3 attempts ($(Join-Path $Dir $wanted[$packages[0]]) is missing). The cause is most likely the network: check the connection to dl.google.com (DNS, proxy, firewall) and run the script again."
         }
+        Write-Host "Not installed: $($packages -join ', ') (probably a network error reaching dl.google.com); retrying in $($attempt * 5) s..."
+        Start-Sleep -Seconds ($attempt * 5)
     }
+    $ErrorActionPreference = 'Stop'
 
     $ErrorActionPreference = 'Stop'
 
