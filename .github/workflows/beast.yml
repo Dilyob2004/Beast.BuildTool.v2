@@ -148,20 +148,37 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           unset JAVA_HOME ANDROID_HOME ANDROID_SDK_ROOT
-          extra=(); [[ "$RUNNER_OS" == Linux ]] && extra=(--emulator)
-          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --force --no-profile "${extra[@]}"
           set -o pipefail
-          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile "${extra[@]}" | tee "$RUNNER_TEMP/second.log"
-          if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then echo "::error title=InstallAndroid.sh::the second run downloaded again"; exit 1; fi
+          extra=(); [[ "$RUNNER_OS" == Linux ]] && extra=(--emulator)
+          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --force --no-profile "${extra[@]}" 2>&1 | tee "$RUNNER_TEMP/first.log"
+          bash InstallAndroid.sh --dir "$RUNNER_TEMP/android" --jdk-dir "$RUNNER_TEMP/jdk" --no-profile "${extra[@]}" 2>&1 | tee "$RUNNER_TEMP/second.log"
+          if grep -E "Downloading|Installing:|AVD created" "$RUNNER_TEMP/second.log"; then
+            echo "::error title=InstallAndroid.sh::the second run downloaded again: $(grep -E 'Downloading|Installing:|AVD created|Already' "$RUNNER_TEMP/second.log" | tr '\n' ' ' | head -c 1500)"; exit 1
+          fi
+          # The pinned sdkmanager works on its own: no Android CLI, no usage metrics, no deprecation warnings.
+          if grep -iE "deprecat|Android CLI|metrics|no longer needed" "$RUNNER_TEMP/first.log" "$RUNNER_TEMP/second.log"; then
+            echo "::error title=InstallAndroid.sh::deprecation/Android CLI/metrics message in the output"; exit 1
+          fi
+          if [[ -e "$HOME/.androidrc" ]] || ls "$RUNNER_TEMP/android" | grep -qix 'android'; then echo "::error title=InstallAndroid.sh::Android CLI was set up"; exit 1; fi
+          version="$(JAVA_HOME="$RUNNER_TEMP/jdk$([[ "$RUNNER_OS" == macOS ]] && echo /Contents/Home)" "$RUNNER_TEMP/android/cmdline-tools/19.0/bin/sdkmanager" --version)"
+          [[ "$version" == 19.0* ]] || { echo "::error title=InstallAndroid.sh::sdkmanager --version: $version"; exit 1; }
       - name: InstallAndroid.ps1
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Remove-Item Env:JAVA_HOME, Env:ANDROID_HOME, Env:ANDROID_SDK_ROOT -ErrorAction SilentlyContinue
-          ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -Force -NoProfile
+          $first = ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -Force -NoProfile *>&1 | Out-String
+          Write-Host $first
+          if (-not (Test-Path "$env:RUNNER_TEMP\android\ndk\27.3.13750724\source.properties")) { Write-Host '::error title=InstallAndroid.ps1::the first run did not install the NDK'; exit 1 }
           $second = ./InstallAndroid.ps1 -Dir "$env:RUNNER_TEMP\android" -JdkDir "$env:RUNNER_TEMP\jdk" -NoProfile *>&1 | Out-String
           Write-Host $second
           if ($second -match 'Downloading|Installing:') { Write-Host '::error title=InstallAndroid.ps1::the second run downloaded again'; exit 1 }
+          # The pinned sdkmanager works on its own: no Android CLI, no usage metrics, no deprecation warnings.
+          if ("$first$second" -match '(?i)deprecat|Android CLI|metrics|no longer needed') { Write-Host "::error title=InstallAndroid.ps1::deprecation/Android CLI/metrics message: $($Matches[0])"; exit 1 }
+          if ((Test-Path "$env:USERPROFILE\.androidrc") -or (Test-Path "$env:RUNNER_TEMP\android\android.exe")) { Write-Host '::error title=InstallAndroid.ps1::Android CLI was set up'; exit 1 }
+          $env:JAVA_HOME = "$env:RUNNER_TEMP\jdk"
+          $version = (& "$env:RUNNER_TEMP\android\cmdline-tools\19.0\bin\sdkmanager.bat" --version | Out-String).Trim()
+          if (-not $version.StartsWith('19.0')) { Write-Host "::error title=InstallAndroid.ps1::sdkmanager --version: $version"; exit 1 }
       - name: Build the Android template with the installed toolchain
         run: |
           trap 'echo "::error title=android-install::$BASH_COMMAND failed (line $LINENO)"' ERR
@@ -186,9 +203,9 @@ jobs:
           test -f "$RUNNER_TEMP/projects/Droid/Binaries/Android/Debug/Droid.apk"
           if [[ "$RUNNER_OS" == Linux ]]; then
             # The AVD as 'run --avd beast_api34' starts it: the emulator's own list.
-            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk"
+            export ANDROID_HOME="$RUNNER_TEMP/android" ANDROID_SDK_ROOT="$RUNNER_TEMP/android" JAVA_HOME="$jdk" ANDROID_AVD_HOME="$HOME/.android/avd"
             "$ANDROID_HOME/emulator/emulator" -list-avds >"$RUNNER_TEMP/emulator-avds.txt" 2>&1 || true
-            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
+            "$ANDROID_HOME/cmdline-tools/19.0/bin/avdmanager" list avd -c >"$RUNNER_TEMP/avds.txt" 2>&1 || true
             echo "::notice title=android-install AVDs::avdmanager: $(tr '\n' ' ' <"$RUNNER_TEMP/avds.txt" | head -c 500) | emulator -list-avds: $(tr '\n' ' ' <"$RUNNER_TEMP/emulator-avds.txt" | head -c 500)"
             grep -qx beast_api34 "$RUNNER_TEMP/emulator-avds.txt" || { echo "::error title=android-install::the emulator does not list beast_api34"; exit 1; }
           fi

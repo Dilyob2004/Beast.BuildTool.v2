@@ -384,6 +384,10 @@ if [[ $os == Mac ]]; then
     check '[[ -x "$template/Binaries/$platform/Debug/Template.app/Contents/MacOS/Template" ]]' 'macOS template is not an .app'
     if [[ -n "${sim:-}" ]]; then
         beast build "$template" --platform IOSSimulator --config Debug
+        # simctl's console relay occasionally loses the output of an app that quits at once: one retry.
+        if SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 &&
+            ! grep -q "Hello from Template!" "$work/template-ios.log"; then sleep 2; fi
+        grep -q "Hello from Template!" "$work/template-ios.log" ||
         SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 ||
             { cat "$work/template-ios.log"; annotate 'iOS template run failed' "$work/template-ios.log"; exit 1; }
         if ! grep -q "Hello from Template!" "$work/template-ios.log"; then

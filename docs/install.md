@@ -100,8 +100,12 @@ powershell -ExecutionPolicy Bypass -File InstallAndroid.ps1 -Emulator
   `~/Library/Java/JavaVirtualMachines/beast-temurin-17` (`--jdk-dir`/`-JdkDir`).
 - **Android SDK** — в тот же каталог, что у Android Studio: `%LOCALAPPDATA%\Android\Sdk`, `~/Android/Sdk`,
   `~/Library/Android/sdk` (или `ANDROID_HOME`; `--dir`/`-Dir`). Command-line tools берутся из каталога
-  репозитория Google (стабильный канал, проверка SHA-1), остальное ставит `sdkmanager`; лицензии
-  принимаются автоматически. NDK — версия, на которой проверяется CI (`27.3.13750724`), другая —
+  репозитория Google (проверка SHA-1), остальное ставит `sdkmanager`; лицензии принимаются автоматически.
+  Версия command-line tools закреплена — **19.0**, в каталог `cmdline-tools/19.0` (существующий
+  `cmdline-tools/latest` Android Studio не трогается): начиная с 23.0 `sdkmanager` устарел, сам скачивает
+  «Android CLI» и включает сбор статистики использования Google. Другую версию задаёт
+  `--cmdline-tools`/`-CmdlineTools` (для 23.0+ скрипт предупреждает об этом и не вызывает больше не
+  нужный `--licenses`). NDK — версия, на которой проверяется CI (`27.3.13750724`), другая —
   `--ndk`/`-Ndk`.
 - **Эмулятор** (`--emulator`/`-Emulator`): `emulator`, `platforms;android-34`, `system-images;android-34;google_apis;x86_64`
   (на Apple Silicon — `arm64-v8a`) и AVD `beast_api34` — для `run --platform Android --avd beast_api34`
