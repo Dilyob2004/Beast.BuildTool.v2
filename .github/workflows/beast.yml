@@ -247,7 +247,9 @@ jobs:
         run: |
           set -o pipefail
           trap 'echo "::error title=android-install discovery::$BASH_COMMAND failed (line $LINENO): $(tail -n 12 "$RUNNER_TEMP/step.log" 2>/dev/null | tr "\n" " " | head -c 1500)"' ERR
-          # Disk space; nothing below uses them. On Windows the previous Gradle daemon may still hold the old JDK.
+          # The previous step's Gradle daemon runs on the JDK removed below; a new build must not reuse it.
+          if [[ "$RUNNER_OS" == Windows ]]; then taskkill //F //IM java.exe >/dev/null 2>&1 || true; else pkill -f GradleDaemon || true; fi
+          # Disk space; nothing below uses them.
           rm -rf "$RUNNER_TEMP/android" "$RUNNER_TEMP/jdk" "$RUNNER_TEMP/projects" 2>/dev/null || true
           tool=BuildTool/bin/Beast.BuildTool; [[ "$RUNNER_OS" == Windows ]] && tool=BuildTool/bin/Beast.BuildTool.exe
           clean_env=(env -u JAVA_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME)
