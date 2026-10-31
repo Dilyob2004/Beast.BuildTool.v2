@@ -285,6 +285,59 @@ jobs:
           fi
           echo "::notice title=Toolchain discovery ($RUNNER_OS)::APK built with no JAVA_HOME/ANDROID_HOME and no BuildConfig paths"
 
+  ios-window:
+    # The simulator window of 'run --platform IOSSimulator' with every Xcode generation on the runner:
+    # Device Hub (Xcode 27+, com.apple.dt.Devices) and Simulator.app (Xcode 26 and earlier).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build tool
+        run: dotnet build BuildTool/Beast.BuildTool.csproj -c Release
+      - name: Simulator window per Xcode
+        run: |
+          set -o pipefail
+          tool="$PWD/BuildTool/bin/Beast.BuildTool"
+          ls -d /Applications/Xcode*.app
+          echo "::notice title=ios-window ${{ matrix.os }}::Xcodes: $(ls -d /Applications/Xcode*.app | xargs -n1 basename | tr '\n' ' '); Launch Services: Device Hub $(mdfind "kMDItemCFBundleIdentifier == 'com.apple.dt.Devices'" | head -n 3 | tr '\n' ' '); Simulator $(mdfind "kMDItemCFBundleIdentifier == 'com.apple.iphonesimulator'" | head -n 3 | tr '\n' ' ')"
+          # The newest Xcode of each major version (27, 26, 16 ...), real directories only.
+          xcodes=$(for x in /Applications/Xcode_[0-9]*.app; do [[ -L "$x" ]] || echo "$x"; done | sed -E 's|.*/Xcode_([0-9]+)\.([0-9.]+)(.*)\.app$|\1 \1.\2\3 &|' | sort -t' ' -k1,1nr -k2,2Vr | awk '!seen[$1]++ {print $3}' | head -n 2)
+          tested=0
+          for xcode in $xcodes; do
+            export DEVELOPER_DIR="$xcode/Contents/Developer"
+            version="$(basename "$xcode" .app)"   # not xcodebuild -version | head: SIGPIPE under pipefail
+            if ! xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1 || ! xcrun simctl list devices available | grep -q iPhone; then
+              echo "::notice title=ios-window $version::skipped (no iOS simulator SDK or device)"; continue
+            fi
+            work="$RUNNER_TEMP/$(basename "$xcode" .app)"
+            "$tool" new HubApp --path "$work" >/dev/null
+            "$tool" build "$work/HubApp" --platform IOSSimulator --config Debug >"$work/build.log" 2>&1 || { tail -n 30 "$work/build.log"; echo "::error title=ios-window $version::build failed"; exit 1; }
+            pkill -if 'simulator\.app/|device ?hub' || true
+            SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "$tool" run "$work/HubApp" --platform IOSSimulator --no-build >"$work/run.log" 2>&1 || { cat "$work/run.log"; echo "::error title=ios-window $version::run failed"; exit 1; }
+            cat "$work/run.log"
+            opened="$(grep -o 'Opening the simulator window ([^)]*)' "$work/run.log" || true)"
+            if grep -q "xcode-select -s" "$work/run.log"; then echo "::error title=ios-window $version::run suggested xcode-select"; exit 1; fi
+            [[ -n "$opened" ]] || { echo "::error title=ios-window $version::no simulator window opened"; exit 1; }
+            for _ in $(seq 1 20); do pgrep -if 'simulator\.app/|device ?hub' >/dev/null && break; sleep 1; done
+            running="$(pgrep -ilf 'simulator\.app/|device ?hub' | head -n 2 | tr '\n' ' ')"
+            [[ -n "$running" ]] || { echo "::error title=ios-window $version::window app not running after: $opened"; exit 1; }
+            if [[ -d "$DEVELOPER_DIR/Applications/Simulator.app" && "$running" != *"$xcode/"* ]]; then
+              echo "::error title=ios-window $version::Simulator of another Xcode: $running"; exit 1
+            fi
+            SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "$tool" run "$work/HubApp" --platform IOSSimulator --no-build --headless >"$work/headless.log" 2>&1 || true
+            if grep -q "Opening the simulator window\|No simulator window app" "$work/headless.log"; then echo "::error title=ios-window $version::--headless opened a window or warned"; exit 1; fi
+            echo "::notice title=ios-window $version::$opened; running: $running"
+            pkill -if 'simulator\.app/|device ?hub' || true
+            tested=$((tested + 1))
+          done
+          [[ $tested -gt 0 ]] || { echo "::error title=ios-window::no Xcode with an iOS simulator"; exit 1; }
+
   macos:
     runs-on: macos-latest
     steps:
