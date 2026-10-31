@@ -271,7 +271,7 @@ public static class IosRunner
     /// <summary>
     /// Opens the simulator window on the device the app is installed to, the first that works of:
     /// Device Hub by bundle identifier (Xcode 27+; the devices://device/open?id=&lt;udid&gt; link selects
-    /// the device), Simulator.app by bundle identifier, Simulator.app inside the selected Xcode (both with
+    /// the device), Simulator.app inside the selected Xcode, Simulator.app by bundle identifier (both with
     /// -CurrentDeviceUDID &lt;udid&gt;). Nothing found is only a warning: the app runs in the booted device.
     /// </summary>
     public static async Task<string?> ShowSimulatorAsync(string udid)
@@ -281,10 +281,12 @@ public static class IosRunner
         if ((await IosPlatform.RunAsync("open", ["-b", DeviceHubId, link])).Exit == 0 ||
             (await IosPlatform.RunAsync("open", ["-b", DeviceHubId])).Exit == 0)
             return Opened($"Device Hub, {DeviceHubId}");
-        if ((await IosPlatform.RunAsync("open", ["-b", SimulatorAppId, "--args", "-CurrentDeviceUDID", udid])).Exit == 0)
-            return Opened($"Simulator, {SimulatorAppId}");
+        // Simulator.app of the selected Xcode before the one Launch Services picks: with several Xcodes
+        // installed, open -b may start another version's Simulator.
         if (await SimulatorAppPathAsync() is { } app && (await IosPlatform.RunAsync("open", [app, "--args", "-CurrentDeviceUDID", udid])).Exit == 0)
             return Opened(app);
+        if ((await IosPlatform.RunAsync("open", ["-b", SimulatorAppId, "--args", "-CurrentDeviceUDID", udid])).Exit == 0)
+            return Opened($"Simulator, {SimulatorAppId}");
         Log.TraceWarning("No simulator window app was found (Device Hub or Simulator.app); the app runs in the booted simulator without a window. " +
             "run --headless (or ios.headless) skips the window and this message.");
         return null;

@@ -68,11 +68,12 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   1. Device Hub (Xcode 27+, bundle id `com.apple.dt.Devices`) через Launch Services:
      `open -b com.apple.dt.Devices "devices://device/open?id=<udid>"`. Ссылка выбирает устройство, а если она
      не сработала, Device Hub всё равно показывает загруженные устройства.
-  2. Simulator.app (Xcode 26 и раньше, `com.apple.iphonesimulator`):
+  2. Simulator.app внутри выбранного Xcode (Xcode 26 и раньше; `DEVELOPER_DIR` или `xcode-select -p`):
+     `open "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID <udid>`. Этот путь
+     пробуется раньше поиска по bundle id: если установлено несколько Xcode, `open -b` может открыть
+     Simulator из другой версии.
+  3. Simulator.app через Launch Services (`com.apple.iphonesimulator`):
      `open -b com.apple.iphonesimulator --args -CurrentDeviceUDID <udid>`.
-  3. Simulator.app внутри выбранного Xcode (`DEVELOPER_DIR` или `xcode-select -p`):
-     `open "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID <udid>`. Он нужен, когда
-     Simulator.app не зарегистрирован в Launch Services и `open -a Simulator` его не находит.
 
   В Xcode 27 Simulator.app и каталога `Contents/Developer/Applications` больше нет. Если ни одно приложение
   не найдено, выводится предупреждение, а приложение всё равно работает в загруженном симуляторе.

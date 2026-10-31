@@ -409,7 +409,7 @@ if [[ $os == Mac ]]; then
             check 'pgrep -if "$window" >/dev/null' 'the simulator window app is not running after run'
         fi
         check '! grep -q "xcode-select -s" "$work/template-window.log"' 'run suggested xcode-select'
-        echo "::notice title=iOS simulator window ($(xcodebuild -version | head -n 1))::$(grep -o 'Opening the simulator window ([^)]*)' "$work/template-window.log" || echo 'no window app found')"
+        echo "::notice title=iOS simulator window ($(xcodebuild -version 2>/dev/null | sed -n 1p))::$(grep -o 'Opening the simulator window ([^)]*)' "$work/template-window.log" || echo 'no window app found')"
         pkill -if "$window" 2>/dev/null || true
         # ios.headless in the config does the same as --headless.
         cp "$template/Config/BuildConfig.json" "$work/template-config.json"

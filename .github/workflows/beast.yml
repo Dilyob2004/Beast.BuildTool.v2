@@ -311,7 +311,7 @@ jobs:
           tested=0
           for xcode in $xcodes; do
             export DEVELOPER_DIR="$xcode/Contents/Developer"
-            version="$(xcodebuild -version | head -n 1)"
+            version="$(basename "$xcode" .app)"   # not xcodebuild -version | head: SIGPIPE under pipefail
             if ! xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1 || ! xcrun simctl list devices available | grep -q iPhone; then
               echo "::notice title=ios-window $version::skipped (no iOS simulator SDK or device)"; continue
             fi
@@ -327,6 +327,9 @@ jobs:
             for _ in $(seq 1 20); do pgrep -if 'simulator\.app/|device ?hub' >/dev/null && break; sleep 1; done
             running="$(pgrep -ilf 'simulator\.app/|device ?hub' | head -n 2 | tr '\n' ' ')"
             [[ -n "$running" ]] || { echo "::error title=ios-window $version::window app not running after: $opened"; exit 1; }
+            if [[ -d "$DEVELOPER_DIR/Applications/Simulator.app" && "$running" != *"$xcode/"* ]]; then
+              echo "::error title=ios-window $version::Simulator of another Xcode: $running"; exit 1
+            fi
             SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "$tool" run "$work/HubApp" --platform IOSSimulator --no-build --headless >"$work/headless.log" 2>&1 || true
             if grep -q "Opening the simulator window\|No simulator window app" "$work/headless.log"; then echo "::error title=ios-window $version::--headless opened a window or warned"; exit 1; fi
             echo "::notice title=ios-window $version::$opened; running: $running"
