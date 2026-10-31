@@ -241,6 +241,49 @@ jobs:
             grep -qx beast_api34 "$RUNNER_TEMP/emulator-avds.txt" || { echo "::error title=android-install::the emulator does not list beast_api34"; exit 1; }
           fi
           echo "::notice title=InstallAndroid ($RUNNER_OS)::toolchain installed; template APK built"
+      - name: Toolchain found without JAVA_HOME, ANDROID_HOME or BuildConfig paths
+        # InstallAndroid into the default locations with --no-profile; in the same shell, with every Android/Java
+        # variable removed and no paths in Config/BuildConfig.json, Beast finds the JDK, SDK and NDK itself.
+        run: |
+          set -o pipefail
+          trap 'echo "::error title=android-install discovery::$BASH_COMMAND failed (line $LINENO): $(tail -n 12 "$RUNNER_TEMP/step.log" 2>/dev/null | tr "\n" " " | head -c 1500)"' ERR
+          # The previous step's Gradle daemon runs on the JDK removed below; a new build must not reuse it.
+          if [[ "$RUNNER_OS" == Windows ]]; then taskkill //F //IM java.exe >/dev/null 2>&1 || true; else pkill -f GradleDaemon || true; fi
+          # Disk space; nothing below uses them.
+          rm -rf "$RUNNER_TEMP/android" "$RUNNER_TEMP/jdk" "$RUNNER_TEMP/projects" 2>/dev/null || true
+          tool=BuildTool/bin/Beast.BuildTool; [[ "$RUNNER_OS" == Windows ]] && tool=BuildTool/bin/Beast.BuildTool.exe
+          clean_env=(env -u JAVA_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME)
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            "${clean_env[@]}" pwsh -NoProfile -File InstallAndroid.ps1 -NoProfile >"$RUNNER_TEMP/step.log" 2>&1
+          else
+            "${clean_env[@]}" bash InstallAndroid.sh --no-profile >"$RUNNER_TEMP/step.log" 2>&1
+          fi
+          tail -n 12 "$RUNNER_TEMP/step.log"
+          "${clean_env[@]}" "$tool" new Auto --path "$RUNNER_TEMP/auto" >"$RUNNER_TEMP/step.log" 2>&1
+          py="$(command -v python3 || command -v python)"
+          "$py" - "$RUNNER_TEMP/auto/Auto/Config/BuildConfig.json" <<'EOF'
+          import json, sys
+          c = json.load(open(sys.argv[1]))
+          assert not c["android"].get("javaHome") and not c["android"].get("sdkRoot") and not c["android"].get("ndkRoot"), c["android"]
+          c["android"]["abis"] = ["x86_64"]
+          json.dump(c, open(sys.argv[1], "w"), indent=2)
+          EOF
+          if ! "${clean_env[@]}" "$tool" build "$RUNNER_TEMP/auto/Auto" --platform Android --config Debug >"$RUNNER_TEMP/auto.log" 2>&1 &&
+             { sleep 30; ! "${clean_env[@]}" "$tool" build "$RUNNER_TEMP/auto/Auto" --platform Android --config Debug >"$RUNNER_TEMP/auto.log" 2>&1; }; then
+            cat "$RUNNER_TEMP/auto.log"
+            echo "::error title=android-install::APK build without JAVA_HOME/ANDROID_HOME failed: $(grep -v ' Verbose ' "$RUNNER_TEMP/auto.log" | tail -n 15 | tr '\n' ' ' | head -c 1500)"; exit 1
+          fi
+          test -f "$RUNNER_TEMP/auto/Auto/Binaries/Android/Debug/Auto.apk"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            # Nothing to find (another HOME, no variables): Beast stops before compiling and says what it searched.
+            mkdir -p "$RUNNER_TEMP/empty-home"
+            if "${clean_env[@]}" HOME="$RUNNER_TEMP/empty-home" "$tool" build "$RUNNER_TEMP/auto/Auto" --platform Android --config Debug >"$RUNNER_TEMP/missing.log" 2>&1; then
+              echo "::error title=android-install::the build did not stop without a JDK/SDK"; exit 1
+            fi
+            grep -q "Android NDK not found\|no JDK 17+ found" "$RUNNER_TEMP/missing.log" && grep -q "InstallAndroid.sh" "$RUNNER_TEMP/missing.log" && ! grep -q "Compiling " "$RUNNER_TEMP/missing.log" ||
+              { cat "$RUNNER_TEMP/missing.log"; echo "::error title=android-install::no clear early error: $(grep -v ' Verbose ' "$RUNNER_TEMP/missing.log" | tail -n 8 | tr '\n' ' ')"; exit 1; }
+          fi
+          echo "::notice title=Toolchain discovery ($RUNNER_OS)::APK built with no JAVA_HOME/ANDROID_HOME and no BuildConfig paths"
 
   macos:
     runs-on: macos-latest

@@ -182,15 +182,17 @@ public sealed class AndroidBuildConfig
     [JsonPropertyName("releaseSigning")]
     public AndroidSigningConfig ReleaseSigning { get; set; } = new();
 
+    /// <summary>JDK 17+; empty (default) or missing: JAVA_HOME, InstallAndroid's JDK, Android Studio's JBR, java_home (AndroidToolchain).</summary>
     [JsonPropertyName("javaHome")]
-    public string JavaHome { get; set; } = HostPlatform.DefaultJavaHome();
+    public string JavaHome { get; set; } = "";
 
+    /// <summary>Android SDK; empty (default) or missing: ANDROID_HOME, ANDROID_SDK_ROOT, the Android Studio location.</summary>
     [JsonPropertyName("sdkRoot")]
-    public string SdkRoot { get; set; } = HostPlatform.DefaultAndroidSdk();
+    public string SdkRoot { get; set; } = "";
 
-    /// <summary>Either an NDK directory or its parent directory containing versions.</summary>
+    /// <summary>An NDK directory or a directory of versions; empty (default) or missing: ANDROID_NDK_HOME, &lt;sdk&gt;/ndk.</summary>
     [JsonPropertyName("ndkRoot")]
-    public string NdkRoot { get; set; } = Path.Combine(HostPlatform.DefaultAndroidSdk(), "ndk");
+    public string NdkRoot { get; set; } = "";
     /// <summary>ABIs built and packaged into one APK: "arm64-v8a" and/or "x86_64" (emulators, Chromebooks).</summary>
     [JsonPropertyName("abis")]
     public List<string> Abis { get; set; } = ["arm64-v8a"];

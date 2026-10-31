@@ -49,7 +49,8 @@ public sealed class AndroidPlatform : Platform
         _x64 = NormalizeAbi(abi) == "x86_64";
         var android = BuildConfigManager.Config.Android;
         _apiLevel = android.MinSdk;
-        NdkRoot = ResolveNdk(android.NdkRoot, android.NdkVersion);
+        // android.ndkRoot, ANDROID_NDK_HOME or <sdk>/ndk; a clear error before compiling when there is none.
+        NdkRoot = AndroidToolchain.RequireNdk();
         _toolchainRoot = Path.Combine(NdkRoot, "toolchains", "llvm", "prebuilt", HostPlatform.NdkHostTag);
         _clang = Tool("clang++");
         if (!File.Exists(_clang))
@@ -212,15 +213,4 @@ public sealed class AndroidPlatform : Platform
     }
 
     private string TargetArgument() => "--target=" + (_x64 ? "x86_64" : "aarch64") + "-linux-android" + _apiLevel;
-
-    private static string ResolveNdk(string configuredRoot, string configuredVersion)
-    {
-        string root = Environment.ExpandEnvironmentVariables(configuredRoot);
-        if (!Directory.Exists(root)) throw new DirectoryNotFoundException($"Android NDK path does not exist: {root}");
-        if (File.Exists(Path.Combine(root, "source.properties"))) return root;
-        var candidates = Directory.GetDirectories(root).OrderByDescending(Path.GetFileName).ToList();
-        if (!string.IsNullOrWhiteSpace(configuredVersion)) candidates = candidates.Where(x => string.Equals(Path.GetFileName(x), configuredVersion, StringComparison.OrdinalIgnoreCase)).ToList();
-        string? selected = candidates.FirstOrDefault(x => File.Exists(Path.Combine(x, "source.properties")));
-        return selected ?? throw new DirectoryNotFoundException($"No Android NDK installation was found in: {root}");
-    }
 }

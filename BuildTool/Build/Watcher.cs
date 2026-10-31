@@ -168,8 +168,7 @@ public sealed class Watcher
 
     private async Task PushAndroidAsync(string target, List<string> copies)
     {
-        string sdk = Environment.ExpandEnvironmentVariables(BuildConfigManager.Config.Android.SdkRoot);
-        if (string.IsNullOrWhiteSpace(sdk)) sdk = HostPlatform.DefaultAndroidSdk();
+        string sdk = AndroidToolchain.SdkRootOrDefault();
         string adb = Path.Combine(sdk, "platform-tools", HostPlatform.Executable("adb"));
         if (!File.Exists(adb)) { Log.TraceWarning($"[watch] adb not found ({adb}); libraries not pushed."); return; }
         string package = AndroidApplication.ApplicationId(_options.Project, target);

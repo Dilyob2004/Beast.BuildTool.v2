@@ -88,7 +88,7 @@ internal static class AndroidPackager
         string initScript = Path.Combine(state, "beast-package.gradle");
         ModuleCompilation.WriteIfChanged(initScript, InitScript(android, abis, resources, addressSanitizer, AndroidApplication.ApplicationId(projectPath, projectName)));
         string localProperties = Path.Combine(androidProject, "local.properties");
-        ModuleCompilation.WriteIfChanged(localProperties, $"sdk.dir={Escape(Environment.ExpandEnvironmentVariables(android.SdkRoot))}{Environment.NewLine}ndk.dir={Escape(abis[0].Platform.NdkRoot)}{Environment.NewLine}");
+        ModuleCompilation.WriteIfChanged(localProperties, $"sdk.dir={Escape(AndroidToolchain.RequireSdkRoot())}{Environment.NewLine}ndk.dir={Escape(abis[0].Platform.NdkRoot)}{Environment.NewLine}");
 
         string apkOutput = AndroidApplication.Apk(projectPath, projectName, configuration);
         string task = configuration == TargetConfiguration.Debug ? "assembleDebug" : "assembleRelease";
@@ -111,8 +111,8 @@ internal static class AndroidPackager
         start.ArgumentList.Add(task);
         start.ArgumentList.Add("--init-script");
         start.ArgumentList.Add(initScript);
-        string javaHome = Environment.ExpandEnvironmentVariables(android.JavaHome);
-        if (!string.IsNullOrWhiteSpace(javaHome)) start.Environment["JAVA_HOME"] = javaHome;
+        // The JDK Beast found (android.javaHome, JAVA_HOME, InstallAndroid's, Android Studio's), not a stale JAVA_HOME.
+        start.Environment["JAVA_HOME"] = AndroidToolchain.RequireJavaHome();
         using (var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start Gradle."))
         {
             Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -282,7 +282,7 @@ internal static class AndroidPackager
         var signing = configuration == TargetConfiguration.Release ? android.ReleaseSigning : null;
         string settings = JsonSerializer.Serialize(new
         {
-            task, java = Environment.ExpandEnvironmentVariables(android.JavaHome), sdk = Environment.ExpandEnvironmentVariables(android.SdkRoot),
+            task, java = AndroidToolchain.RequireJavaHome(), sdk = AndroidToolchain.RequireSdkRoot(),
             signing, keyStore = signing != null && File.Exists(signing.KeyStore) ? BuildCacheSession.HashFile(signing.KeyStore) : null,
             tool = BuildCacheSession.HashFile(typeof(AndroidPackager).Assembly.Location)
         });

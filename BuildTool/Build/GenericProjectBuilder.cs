@@ -24,6 +24,12 @@ public sealed class GenericProjectBuilder
                 var model = ProjectModel.Load(projectPath, platform, configuration);
                 plans.Add((platform, model, model.SelectTarget(targetName)));
             }
+        // An Android application needs a JDK and the SDK for Gradle: stop now, before compiling, when they are missing.
+        if (plans.Any(p => p.Platform is AndroidPlatform && p.Target.Rules.Type == TargetType.Application && !p.Target.Rules.IsTest))
+        {
+            var (javaHome, sdkRoot) = AndroidToolchain.RequireForPackaging();
+            Log.TraceVerbose($"Android JDK: {javaHome}; SDK: {sdkRoot}");
+        }
         using var buildLock = await ProjectBuildLock.AcquireBuildAsync(projectPath, exclusive: false);
         var lockNames = new List<string>();
         foreach (var (platform, model, target) in plans)

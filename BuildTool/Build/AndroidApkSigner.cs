@@ -8,9 +8,9 @@ internal static class AndroidApkSigner
     public static async Task PublishAsync(string projectPath, AndroidBuildConfig android,
         TargetConfiguration configuration, string input, string output)
     {
-        string javaBin = Path.Combine(Environment.ExpandEnvironmentVariables(android.JavaHome), "bin");
+        string javaBin = Path.Combine(AndroidToolchain.RequireJavaHome(), "bin");
         string java = Path.Combine(javaBin, HostPlatform.Executable("java"));
-        string toolsRoot = Path.Combine(Environment.ExpandEnvironmentVariables(android.SdkRoot), "build-tools");
+        string toolsRoot = Path.Combine(AndroidToolchain.RequireSdkRoot(), "build-tools");
         string? signer = Directory.Exists(toolsRoot) ? Directory.GetDirectories(toolsRoot)
             .Select(path => (Path: path, Version: Version.TryParse(Path.GetFileName(path), out var v) ? v : null))
             .Where(x => x.Version != null).OrderByDescending(x => x.Version)
