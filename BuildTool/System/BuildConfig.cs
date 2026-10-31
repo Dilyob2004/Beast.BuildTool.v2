@@ -79,6 +79,9 @@ public sealed class IosBuildConfig
     [JsonPropertyName("provisioningProfile")] public string ProvisioningProfile { get; set; } = "";
     /// <summary>Simulator for run/test (name such as "iPhone 16" or a UDID); empty: a booted one or the first iPhone.</summary>
     [JsonPropertyName("simulator")] public string Simulator { get; set; } = "";
+
+    /// <summary>run does not open the Simulator window (CI, scripted runs); the same as run --headless.</summary>
+    [JsonPropertyName("headless")] public bool Headless { get; set; }
     /// <summary>Device for run (name or identifier from xcrun devicectl list devices); --device overrides.</summary>
     [JsonPropertyName("device")] public string Device { get; set; } = "";
     /// <summary>Explicit C++ driver (another Clang, e.g. for C++20 modules); empty: Apple clang.</summary>

@@ -243,10 +243,48 @@ public static class IosRunner
         return device.Udid;
     }
 
-    /// <summary>Installs and launches an app in the simulator; its console output is shown until it exits.</summary>
-    public static async Task<int> RunSimulatorAppAsync(string bundle, string identifier)
+    /// <summary>
+    /// Simulator.app lives inside Xcode (&lt;developer dir&gt;/Applications/Simulator.app) and is not
+    /// registered on its own, so 'open -a Simulator' may not find it: the path comes from DEVELOPER_DIR
+    /// or xcode-select -p.
+    /// </summary>
+    public static async Task<string?> SimulatorAppPathAsync()
+    {
+        string developer = Environment.GetEnvironmentVariable("DEVELOPER_DIR") ?? "";
+        if (developer.Length == 0 || !Directory.Exists(developer))
+        {
+            var (exit, output) = await IosPlatform.RunAsync("xcode-select", ["-p"]);
+            developer = exit == 0 ? output.Trim() : "";
+        }
+        // DEVELOPER_DIR may name Xcode.app itself.
+        if (developer.EndsWith(".app", StringComparison.Ordinal)) developer = Path.Combine(developer, "Contents", "Developer");
+        string app = Path.Combine(developer, "Applications", "Simulator.app");
+        return developer.Length > 0 && Directory.Exists(app) ? app : null;
+    }
+
+    /// <summary>Opens the Simulator window on the device the app is installed to.</summary>
+    public static async Task ShowSimulatorAsync(string udid)
+    {
+        string? app = await SimulatorAppPathAsync();
+        if (app == null)
+        {
+            Log.TraceWarning("Simulator.app was not found in Xcode (xcode-select -p)/Applications; the app runs without a window. " +
+                "Select Xcode with 'sudo xcode-select -s /Applications/Xcode.app'.");
+            return;
+        }
+        Log.TraceInfo($"Opening the Simulator window ({app}).");
+        var (exit, output) = await IosPlatform.RunAsync("open", [app, "--args", "-CurrentDeviceUDID", udid]);
+        if (exit != 0) Log.TraceWarning($"Could not open the Simulator window: {output.Trim()}");
+    }
+
+    /// <summary>
+    /// Installs and launches an app in the simulator; its console output is shown until it exits.
+    /// The Simulator window shows the device unless headless (run --headless or ios.headless).
+    /// </summary>
+    public static async Task<int> RunSimulatorAppAsync(string bundle, string identifier, bool headless = false)
     {
         string udid = await SimulatorAsync();
+        if (!headless && !BuildConfigManager.Config.Ios.Headless) await ShowSimulatorAsync(udid);
         var (exit, output) = await IosPlatform.RunAsync("xcrun", ["simctl", "install", udid, bundle]);
         if (exit != 0) throw new InvalidOperationException($"simctl install failed: {output}");
         // --console-pty for a terminal; with redirected output (CI, logs) --console relays the app's

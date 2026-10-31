@@ -125,7 +125,7 @@ internal static class Program
             // (simctl spawn: its output and exit code come back); a UIKit app is launched as an app.
             bool console = ProjectModel.Load(project, platform, configuration).Targets.Single(t => t.Name == target).Rules.ConsoleApplication;
             int code = ios.Simulator && console ? await IosRunner.SpawnAsync(IosPlatform.BundleExecutable(Path.GetDirectoryName(bundle)!, target), [], 0)
-                : ios.Simulator ? await IosRunner.RunSimulatorAppAsync(bundle, IosPlatform.BundleIdentifier(target))
+                : ios.Simulator ? await IosRunner.RunSimulatorAppAsync(bundle, IosPlatform.BundleIdentifier(target), args.HasFlag("headless"))
                 : await IosRunner.RunDeviceAppAsync(bundle, IosPlatform.BundleIdentifier(target), GetOptionalArgument(args, "device"));
             Log.TraceInfo($"{target} exited with code {code}.");
             return code;
@@ -278,8 +278,8 @@ Beast BuildTool
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
-  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait]
-  beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait]
+  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait --headless]
+  beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait] [--headless]
   beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols] [--dmg [--notarize]]
