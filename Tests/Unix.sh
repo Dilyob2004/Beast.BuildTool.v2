@@ -395,16 +395,22 @@ if [[ $os == Mac ]]; then
             { echo '--- simulator log'; xcrun simctl spawn booted log show --style compact --last 3m --predicate 'process == "Template"' 2>&1 | grep -v "^Filtering" | tail -n 30; } >>"$work/template-ios.log"
             cat "$work/template-ios.log"; annotate 'iOS template output' "$work/template-ios.log"; exit 1
         fi
-        check '! grep -q "Opening the Simulator window" "$work/template-ios.log"' 'run --headless opened the Simulator window'
-        # Without --headless: Simulator.app from Xcode (not 'open -a') shows the device the app runs on.
-        killall Simulator 2>/dev/null || true
+        check '! grep -q "Opening the simulator window" "$work/template-ios.log"' 'run --headless opened the Simulator window'
+        # Without --headless: the simulator window opens: Device Hub (Xcode 27+) or Simulator.app (Xcode 26 and
+        # earlier, by bundle identifier or from the selected Xcode), never the 'xcode-select' warning.
+        window='simulator\.app/|device ?hub'
+        pkill -if "$window" 2>/dev/null || true
         SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-window.log" 2>&1 ||
             { cat "$work/template-window.log"; annotate 'iOS run with a window failed' "$work/template-window.log"; exit 1; }
-        grep -q "Opening the Simulator window ($(xcode-select -p)/Applications/Simulator.app)" "$work/template-window.log" ||
-            { cat "$work/template-window.log"; annotate 'iOS run did not open Simulator.app' "$work/template-window.log"; exit 1; }
-        for _ in $(seq 1 20); do pgrep -x Simulator >/dev/null && break; sleep 1; done
-        check 'pgrep -x Simulator >/dev/null' 'the Simulator window is not open after run'
-        killall Simulator 2>/dev/null || true
+        if [[ -d "$(xcode-select -p)/Applications/Simulator.app" ]] || mdfind "kMDItemCFBundleIdentifier == 'com.apple.dt.Devices'" | grep -q .; then
+            grep -q "Opening the simulator window (" "$work/template-window.log" ||
+                { cat "$work/template-window.log"; annotate 'iOS run did not open the simulator window' "$work/template-window.log"; exit 1; }
+            for _ in $(seq 1 20); do pgrep -if "$window" >/dev/null && break; sleep 1; done
+            check 'pgrep -if "$window" >/dev/null' 'the simulator window app is not running after run'
+        fi
+        check '! grep -q "xcode-select -s" "$work/template-window.log"' 'run suggested xcode-select'
+        echo "::notice title=iOS simulator window ($(xcodebuild -version | head -n 1))::$(grep -o 'Opening the simulator window ([^)]*)' "$work/template-window.log" || echo 'no window app found')"
+        pkill -if "$window" 2>/dev/null || true
         # ios.headless in the config does the same as --headless.
         cp "$template/Config/BuildConfig.json" "$work/template-config.json"
         python3 - "$template/Config/BuildConfig.json" <<'EOF'
@@ -413,7 +419,7 @@ c = json.load(open(sys.argv[1])); c.setdefault("ios", {})["headless"] = True; js
 EOF
         SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-headless.log" 2>&1 || true
         cp "$work/template-config.json" "$template/Config/BuildConfig.json"
-        check '! grep -q "Opening the Simulator window" "$work/template-headless.log"' 'ios.headless opened the Simulator window'
+        check '! grep -q "Opening the simulator window" "$work/template-headless.log"' 'ios.headless opened the Simulator window'
     fi
 fi
 pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"

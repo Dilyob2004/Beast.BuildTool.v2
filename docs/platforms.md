@@ -63,13 +63,25 @@ beast build . --platform Android --arch x86_64          # только x86_64 (�
   (`simctl spawn`), её код выхода возвращается. В проектах, созданных до этого изменения, для iOS
   укажите `ConsoleApplication = info.Platform is not (PlatformType.Mac or PlatformType.IOS);`. `run --platform IOS
   --device <имя>` — установка и запуск на устройстве через `xcrun devicectl` (Xcode 15+).
-- Окно симулятора: перед запуском UIKit-приложения `run` открывает Simulator.app на том устройстве,
-  куда ставится приложение: `open "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID <udid>`.
-  Simulator.app лежит внутри Xcode (`/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app`)
-  и не зарегистрирован как отдельное приложение, поэтому `open -a Simulator` может его не найти. Путь
-  берётся из `DEVELOPER_DIR` или `xcode-select -p`; если там другой Xcode или Command Line Tools,
-  выберите Xcode: `sudo xcode-select -s /Applications/Xcode.app`. Вручную:
-  `open "$(xcode-select -p)/Applications/Simulator.app"` (или Xcode → Open Developer Tool → Simulator).
+- Окно симулятора: перед запуском UIKit-приложения `run` открывает окно симулятора на том устройстве,
+  куда ставится приложение. Пробуется по порядку:
+  1. Device Hub (Xcode 27+, bundle id `com.apple.dt.Devices`) через Launch Services:
+     `open -b com.apple.dt.Devices "devices://device/open?id=<udid>"`. Ссылка выбирает устройство, а если она
+     не сработала, Device Hub всё равно показывает загруженные устройства.
+  2. Simulator.app (Xcode 26 и раньше, `com.apple.iphonesimulator`):
+     `open -b com.apple.iphonesimulator --args -CurrentDeviceUDID <udid>`.
+  3. Simulator.app внутри выбранного Xcode (`DEVELOPER_DIR` или `xcode-select -p`):
+     `open "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID <udid>`. Он нужен, когда
+     Simulator.app не зарегистрирован в Launch Services и `open -a Simulator` его не находит.
+
+  В Xcode 27 Simulator.app и каталога `Contents/Developer/Applications` больше нет. Если ни одно приложение
+  не найдено, выводится предупреждение, а приложение всё равно работает в загруженном симуляторе.
+  Открыть окно вручную:
+  - Xcode 27+: `open -b com.apple.dt.Devices` или Xcode → Open Developer Tool → Device Hub;
+  - Xcode 26 и раньше: `open "$(xcode-select -p)/Applications/Simulator.app"` или Xcode → Open Developer Tool → Simulator.
+
+  Beast не читает настройки домена `com.apple.iphonesimulator` и не использует `SimulatorKit.framework`,
+  поэтому их изменения в Xcode 27 его не затрагивают.
   `run --headless` (или `"ios": { "headless": true }` в `Config/BuildConfig.json`) не открывает окно:
   для CI и автоматических запусков — симулятор работает в фоне (`simctl boot`), вывод приложения тот же.
   Консольные программы и `test` выполняются через `simctl spawn` и окно не открывают.
