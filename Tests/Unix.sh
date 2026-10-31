@@ -324,7 +324,7 @@ if [[ $os == Mac ]] && xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>
     check '! grep -qE "Done: [1-9][0-9]* executed" "$work/last.log"' 'no-op iOS build did work'
     beast test "$project" --platform IOSSimulator --target CoreTests
     if "${tool[@]}" test "$project" --platform IOSSimulator --target FailingTests >"$work/ios-test.log" 2>&1; then echo 'FAIL: failing iOS test passed'; exit 1; fi
-    "${tool[@]}" run "$project" --platform IOSSimulator --target Game --no-build >"$work/ios-run.log" 2>&1 || { cat "$work/ios-run.log"; annotate 'iOS run failed' "$work/ios-run.log"; exit 1; }
+    "${tool[@]}" run "$project" --platform IOSSimulator --target Game --no-build --headless >"$work/ios-run.log" 2>&1 || { cat "$work/ios-run.log"; annotate 'iOS run failed' "$work/ios-run.log"; exit 1; }
     if ! grep -q "42 42 42 42" "$work/ios-run.log"; then
         cat "$work/ios-run.log"; echo 'FAIL: Game output in the simulator'; annotate 'Game output in the simulator' "$work/ios-run.log"; exit 1
     fi
@@ -385,16 +385,35 @@ if [[ $os == Mac ]]; then
     if [[ -n "${sim:-}" ]]; then
         beast build "$template" --platform IOSSimulator --config Debug
         # simctl's console relay occasionally loses the output of an app that quits at once: one retry.
-        if SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 &&
+        if SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build --headless >"$work/template-ios.log" 2>&1 &&
             ! grep -q "Hello from Template!" "$work/template-ios.log"; then sleep 2; fi
         grep -q "Hello from Template!" "$work/template-ios.log" ||
-        SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-ios.log" 2>&1 ||
+        SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build --headless >"$work/template-ios.log" 2>&1 ||
             { cat "$work/template-ios.log"; annotate 'iOS template run failed' "$work/template-ios.log"; exit 1; }
         if ! grep -q "Hello from Template!" "$work/template-ios.log"; then
             # Diagnostics: the simulator's system log for the app process.
             { echo '--- simulator log'; xcrun simctl spawn booted log show --style compact --last 3m --predicate 'process == "Template"' 2>&1 | grep -v "^Filtering" | tail -n 30; } >>"$work/template-ios.log"
             cat "$work/template-ios.log"; annotate 'iOS template output' "$work/template-ios.log"; exit 1
         fi
+        check '! grep -q "Opening the Simulator window" "$work/template-ios.log"' 'run --headless opened the Simulator window'
+        # Without --headless: Simulator.app from Xcode (not 'open -a') shows the device the app runs on.
+        killall Simulator 2>/dev/null || true
+        SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-window.log" 2>&1 ||
+            { cat "$work/template-window.log"; annotate 'iOS run with a window failed' "$work/template-window.log"; exit 1; }
+        grep -q "Opening the Simulator window ($(xcode-select -p)/Applications/Simulator.app)" "$work/template-window.log" ||
+            { cat "$work/template-window.log"; annotate 'iOS run did not open Simulator.app' "$work/template-window.log"; exit 1; }
+        for _ in $(seq 1 20); do pgrep -x Simulator >/dev/null && break; sleep 1; done
+        check 'pgrep -x Simulator >/dev/null' 'the Simulator window is not open after run'
+        killall Simulator 2>/dev/null || true
+        # ios.headless in the config does the same as --headless.
+        cp "$template/Config/BuildConfig.json" "$work/template-config.json"
+        python3 - "$template/Config/BuildConfig.json" <<'EOF'
+import json, sys
+c = json.load(open(sys.argv[1])); c.setdefault("ios", {})["headless"] = True; json.dump(c, open(sys.argv[1], "w"), indent=2)
+EOF
+        SIMCTL_CHILD_BEAST_QUIT_AFTER_LAUNCH=1 "${tool[@]}" run "$template" --platform IOSSimulator --no-build >"$work/template-headless.log" 2>&1 || true
+        cp "$work/template-config.json" "$template/Config/BuildConfig.json"
+        check '! grep -q "Opening the Simulator window" "$work/template-headless.log"' 'ios.headless opened the Simulator window'
     fi
 fi
 pass "project template ($([[ $os == Mac ]] && echo "AppKit app${sim:+, UIKit app in the simulator}" || echo 'console program'))"
@@ -444,7 +463,7 @@ if [[ -n "${sim:-}" ]]; then
     beast build "$res" --platform IOSSimulator --config Debug
     check '[[ -f "$res/Binaries/$sim/Debug/Res.app/Assets/greeting.txt" && -f "$res/Binaries/$sim/Debug/Res.app/Assets/Data/level.txt" ]]' 'iOS bundle resources'
     check 'codesign --verify --strict "$res/Binaries/$sim/Debug/Res.app"' 'iOS bundle with resources is not validly signed'
-    "${tool[@]}" run "$res" --platform IOSSimulator --no-build >"$work/res-ios.log" 2>&1 || { cat "$work/res-ios.log"; annotate 'iOS resource program failed' "$work/res-ios.log"; exit 1; }
+    "${tool[@]}" run "$res" --platform IOSSimulator --no-build --headless >"$work/res-ios.log" 2>&1 || { cat "$work/res-ios.log"; annotate 'iOS resource program failed' "$work/res-ios.log"; exit 1; }
     check 'grep -q "resource 43|level 7|absent" "$work/res-ios.log"' 'iOS: resources not read'
 fi
 pass "resources ($([[ $os == Mac ]] && echo ".app${sim:+, iOS bundle}" || echo 'next to the program'), dependency target, incremental, install)"
