@@ -15,9 +15,53 @@ public sealed class GenericProjectBuilder
     /// </summary>
     public async Task BuildAsync(string projectPath, string projectName, IReadOnlyList<Platform> platforms, TargetConfiguration configuration, string? targetName = null)
     {
+        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks);
+        using var _ = locks;
+        // One build graph for everything this invocation builds: the target, its dependency targets
+        // and every platform/ABI. Targets are planned dependencies first (their modules' rules are
+        // expanded by their own target), then all actions run as one DAG: a consumer's compilation
+        // only waits for what it reads (generated headers), its link for the libraries it links.
+        var first = plans[0];
+        var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs,
+            Path.Combine(first.Model.BuildDirectory(first.Platform.PlatformName, configuration, first.Target.Name), "BuildGraph.json"));
+        var planned = await PlanAsync(executor, plans, projectPath, projectName, configuration);
+        foreach (var item in planned) executor.AddTrace(item.TracePath, item.Actions);
+        await executor.ExecuteAsync();
+        var androidOutputs = new List<AndroidAbiOutput>();
+        foreach (var item in planned)
+        {
+            item.Finish();
+            if (item.Android is { } output) androidOutputs.Add(output);
+        }
+        if (androidOutputs.Count > 0) await AndroidPackager.PackageAsync(projectPath, androidOutputs[0].Target, configuration, androidOutputs);
+        if (MacPlatform.IsUniversal(platforms)) await MacPlatform.MergeUniversalAsync(projectPath, configuration);
+    }
+
+    /// <summary>
+    /// 'beast graph': plans the same graph as build (target, dependency targets, platforms) without
+    /// running an action, and describes it as JSON or Graphviz DOT.
+    /// </summary>
+    public async Task<string> DescribeGraphAsync(string projectPath, string projectName, IReadOnlyList<Platform> platforms, TargetConfiguration configuration, string? targetName, string format)
+    {
+        if (format is not ("json" or "dot")) throw new ArgumentException($"Unknown graph format '{format}'. Use json or dot.");
+        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks);
+        using var _ = locks;
+        var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs);
+        var planned = await PlanAsync(executor, plans, projectPath, projectName, configuration);
+        return BuildGraphDescription.Describe(executor.PlanGraph(), planned.Select(p => (p.Platform.PlatformName + "/" + p.Target.Name, p.Actions)).ToList(), format);
+    }
+
+    private sealed class Locks(IDisposable build, IDisposable targets) : IDisposable
+    {
+        public void Dispose() { targets.Dispose(); build.Dispose(); }
+    }
+
+    private static List<(Platform Platform, ProjectModel Model, BuildTarget Target)> LoadPlans(string projectPath, IReadOnlyList<Platform> platforms,
+        TargetConfiguration configuration, string? targetName, out IDisposable locks)
+    {
         var plans = new List<(Platform Platform, ProjectModel Model, BuildTarget Target)>();
         // The project lock covers rules compilation only; targets and configurations build in parallel.
-        using (await ProjectBuildLock.AcquireAsync(projectPath))
+        using (ProjectBuildLock.AcquireAsync(projectPath).GetAwaiter().GetResult())
             foreach (var platform in platforms)
             {
                 // Rules are evaluated per platform/architecture (ModulesInfo.Architecture differs by ABI).
@@ -30,7 +74,7 @@ public sealed class GenericProjectBuilder
             var (javaHome, sdkRoot) = AndroidToolchain.RequireForPackaging();
             Log.TraceVerbose($"Android JDK: {javaHome}; SDK: {sdkRoot}");
         }
-        using var buildLock = await ProjectBuildLock.AcquireBuildAsync(projectPath, exclusive: false);
+        var buildLock = ProjectBuildLock.AcquireBuildAsync(projectPath, exclusive: false).GetAwaiter().GetResult();
         var lockNames = new List<string>();
         foreach (var (platform, model, target) in plans)
         {
@@ -38,19 +82,33 @@ public sealed class GenericProjectBuilder
             lockNames.AddRange(closure.Select(t => TargetLockName(platform.PlatformName, configuration, t.Name)));
             if (platform.Type == PlatformType.Android && target.Rules.Type == TargetType.Application && !target.Rules.IsTest) lockNames.Add("AndroidPackage-" + target.Name);
         }
-        using var targetLocks = await ProjectBuildLock.AcquireTargetsAsync(projectPath, lockNames);
-        var androidOutputs = new List<AndroidAbiOutput>();
+        IDisposable targetLocks;
+        try { targetLocks = ProjectBuildLock.AcquireTargetsAsync(projectPath, lockNames).GetAwaiter().GetResult(); }
+        catch { buildLock.Dispose(); throw; }
+        locks = new Locks(buildLock, targetLocks);
+        return plans;
+    }
+
+    /// <summary>
+    /// Adds the actions of every requested target and its dependency targets to <paramref name="executor"/>
+    /// without running them (build, and 'beast graph' to inspect the plan).
+    /// </summary>
+    internal static async Task<List<PlannedTarget>> PlanAsync(CommandExecutor executor, IReadOnlyList<(Platform Platform, ProjectModel Model, BuildTarget Target)> plans,
+        string projectPath, string projectName, TargetConfiguration configuration)
+    {
+        var planned = new List<PlannedTarget>();
         foreach (var (platform, model, target) in plans)
         {
             await PackageManagers.PrepareAsync(model, platform, configuration);
-            // Dependency targets first, in the same invocation and model: their modules are compiled
-            // once, by their own target, and their generated paths are already expanded for consumers.
-            foreach (var dependency in model.TargetDependencies(target))
-                await BuildTargetAsync(model, dependency, projectPath, projectName, platform, configuration);
-            if (await BuildTargetAsync(model, target, projectPath, projectName, platform, configuration) is { } output) androidOutputs.Add(output);
+            var byTarget = new Dictionary<BuildTarget, PlannedTarget>();
+            foreach (var item in model.TargetDependencies(target).Append(target))
+            {
+                var plan = PlanTarget(executor, model, item, projectPath, projectName, platform, configuration, byTarget);
+                byTarget[item] = plan;
+                planned.Add(plan);
+            }
         }
-        if (androidOutputs.Count > 0) await AndroidPackager.PackageAsync(projectPath, androidOutputs[0].Target, configuration, androidOutputs);
-        if (MacPlatform.IsUniversal(platforms)) await MacPlatform.MergeUniversalAsync(projectPath, configuration);
+        return planned;
     }
 
     internal static string TargetLockName(string platform, TargetConfiguration configuration, string target) => $"{platform}-{configuration}-{target}";
@@ -61,16 +119,34 @@ public sealed class GenericProjectBuilder
             ? platform.StaticLibraryFileExtension
             : platform.Type == PlatformType.Windows ? ".lib" /* import library */ : platform.SharedLibraryFileExtension));
 
-    private static async Task<AndroidAbiOutput?> BuildTargetAsync(ProjectModel model, BuildTarget target, string projectPath, string projectName, Platform platform, TargetConfiguration configuration)
+    /// <summary>A target's part of the build graph, and what to do with its products after the graph ran.</summary>
+    internal sealed class PlannedTarget(BuildTarget target, Platform platform, string tracePath, IReadOnlyList<CommandContext> actions,
+        IReadOnlyList<string> finalOutputs, AndroidAbiOutput? android, BuildStepPlan steps, Action finish)
     {
+        public BuildStepPlan Steps { get; } = steps;
+        public BuildTarget Target { get; } = target;
+        public Platform Platform { get; } = platform;
+        /// <summary>BuildTrace.json of the target: its own actions of the shared graph.</summary>
+        public string TracePath { get; } = tracePath;
+        public IReadOnlyList<CommandContext> Actions { get; } = actions;
+        /// <summary>Products a consumer links or loads (EXE/DLL/.so, import library, archive).</summary>
+        public IReadOnlyList<string> FinalOutputs { get; } = finalOutputs;
+        public AndroidAbiOutput? Android { get; } = android;
+        /// <summary>After a successful graph: stale runtime files, install manifest.</summary>
+        public void Finish() => finish();
+    }
+
+    private static PlannedTarget PlanTarget(CommandExecutor executor, ProjectModel model, BuildTarget target, string projectPath, string projectName, Platform platform,
+        TargetConfiguration configuration, IReadOnlyDictionary<BuildTarget, PlannedTarget> plannedTargets)
+    {
+        int firstAction = executor.Count;
         var modules = model.OwnModules(target);
         // Android test targets are plain executables run through adb, not APKs.
         bool androidApplication = platform.Type == PlatformType.Android && target.Rules.Type == TargetType.Application && !target.Rules.IsTest;
-        Log.TraceInfo($"Building target {target.Name} ({target.Rules.Type}), {platform.PlatformName} {configuration}");
+        Log.TraceInfo($"Planning target {target.Name} ({target.Rules.Type}), {platform.PlatformName} {configuration}");
         // An external project's target builds into this project's Intermediate/.../External/<name>/<target>.
         string buildPath = model.BuildDirectory(platform.PlatformName, configuration, target.Name);
         string outputPath = Path.Combine(projectPath, "Binaries", platform.PlatformName, configuration.ToString());
-        var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs, Path.Combine(buildPath, "BuildTrace.json"));
         var steps = new BuildStepPlan(projectPath, buildPath, outputPath, platform.PlatformName, configuration.ToString(), target.Name, modules);
         steps.AddGenerators(executor);
         var link = CreateLinkEnvironment(platform, configuration, modules);
@@ -102,7 +178,7 @@ public sealed class GenericProjectBuilder
             sources.AddRange(steps.AdditionalSources(module).Where(f => !sources.Contains(f, StringComparer.OrdinalIgnoreCase)));
             if (sources.Count == 0) continue;
             var cpp = model.CompileEnvironment(target, module, platform, configuration);
-            steps.ConfigureCompilation(model, module, cpp);
+            steps.ConfigureCompilation(model, module, cpp, model.TargetDependencies(target).Select(t => plannedTargets.GetValueOrDefault(t)?.Steps).OfType<BuildStepPlan>());
             modulePlan.Apply(module, cpp, sources);
             sources = ModuleCompilation.Prepare(module, cpp, sources, Path.Combine(buildPath, "Generated", module.ModuleName), steps.DeclaredOutputs);
             var objects = platform.CompileCppFiles(executor, cpp, sources, Path.Combine(buildPath, "Objects", module.ModuleName));
@@ -181,6 +257,12 @@ public sealed class GenericProjectBuilder
             bool iosApplication = platform is IosPlatform && target.Rules.Type == TargetType.Application && !target.Rules.IsTest;
             if (iosApplication) linkOutput = Path.Combine(buildPath, "Program", target.Name);
             platform.LinkFiles(executor, link, linkOutput);
+            // The link waits for the products of the targets it links: the archive or import library
+            // is an input already; the DLL/.so itself is an ordering edge (an import library is not
+            // always declared as an output, and the program needs the DLL beside it to run).
+            var linked = model.LinkedTargets(target).Select(t => plannedTargets.GetValueOrDefault(t)).OfType<PlannedTarget>().SelectMany(t => t.FinalOutputs).ToList();
+            foreach (var action in executor.GetResults().Skip(firstAction).Where(a => a.Type == CommandType.Link && IsFinalOutput(a)))
+                foreach (string product in linked) action.AddOrderDependency(product);
             if (iosApplication)
             {
                 var embedded = model.TargetDependencies(target).Where(t => t.Rules.Type == TargetType.SharedLibrary)
@@ -221,15 +303,23 @@ public sealed class GenericProjectBuilder
             package = new AndroidPackagePlan(buildPath, target.Name, modules, steps, (AndroidPlatform)platform, resourceModules);
             package.AddCopies(executor);
         }
+        var actions = executor.GetResults().Skip(firstAction).ToList();
         if (BuildConfigManager.Config.GenerateCompileCommands)
-            CompileCommandsGenerator.Write(projectPath, buildPath, executor.GetResults());
-        await executor.ExecuteAsync();
-        RemoveStaleRuntimeFiles(buildPath, outputPath, runtimeFiles.Concat(bundleResources).ToList());
-        InstallManifest.Write(model, target, platform, configuration, buildPath, outputPath, baseName, link, runtimeFiles, steps);
-
-        return platform is AndroidPlatform android && androidApplication
-            ? new AndroidAbiOutput(android, target.Name, Path.Combine(outputPath, baseName + ".so"), package!, sharedDependencies, target.Rules.StaticRuntime, link.Sanitizers)
+            CompileCommandsGenerator.Write(projectPath, buildPath, actions);
+        var finalOutputs = actions.Where(a => a.Type == CommandType.Link && IsFinalOutput(a)).SelectMany(a => a.ProducedFiles)
+            .Where(f => !f.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)).ToList();
+        var android = platform is AndroidPlatform androidPlatform && androidApplication
+            ? new AndroidAbiOutput(androidPlatform, target.Name, Path.Combine(outputPath, baseName + ".so"), package!, sharedDependencies, target.Rules.StaticRuntime, link.Sanitizers)
             : null;
+        return new PlannedTarget(target, platform, Path.Combine(buildPath, "BuildTrace.json"), actions, finalOutputs, android, steps, () =>
+        {
+            RemoveStaleRuntimeFiles(buildPath, outputPath, runtimeFiles.Concat(bundleResources).ToList());
+            InstallManifest.Write(model, target, platform, configuration, buildPath, outputPath, baseName, link, runtimeFiles, steps);
+        });
+
+        // Products of the target itself, not the per-module archives in its build directory.
+        bool IsFinalOutput(CommandContext action) => action.ProducedFiles.Any(f =>
+            !Path.GetFullPath(f).StartsWith(Path.Combine(Path.GetFullPath(buildPath), "Libraries") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

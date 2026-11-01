@@ -53,7 +53,7 @@ public sealed class ProjectSettings
             using (document)
             {
                 var root = document.RootElement;
-                if (root.TryGetProperty("thirdPartyDirectory", out var value))
+                if (root.TryGetProperty("thirdPartyDirectory", out var value) && value.ValueKind != JsonValueKind.Null)
                 {
                     if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
                         throw new InvalidOperationException($"{config}: \"thirdPartyDirectory\" must be a non-empty path.");
@@ -61,7 +61,7 @@ public sealed class ProjectSettings
                     if (!Directory.Exists(thirdParty))
                         throw new InvalidOperationException($"{config}: thirdPartyDirectory '{thirdParty}' does not exist.");
                 }
-                if (root.TryGetProperty("includeRoots", out var list))
+                if (root.TryGetProperty("includeRoots", out var list) && list.ValueKind != JsonValueKind.Null)
                 {
                     if (list.ValueKind != JsonValueKind.Array)
                         throw new InvalidOperationException($"{config}: \"includeRoots\" must be a list of directories.");

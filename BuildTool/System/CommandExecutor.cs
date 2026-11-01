@@ -105,6 +105,14 @@ namespace Beast.BuildTool
             catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
             { return []; } // Corrupt generated metadata is repaired by restoring/recompiling the action.
         }
+        /// <summary>
+        /// Ordering-only input: the graph waits for the action producing <paramref name="file"/>, but the
+        /// file is not part of this action's content key (it does not trigger a rerun by itself).
+        /// </summary>
+        public void AddOrderDependency(string file)
+        {
+            if (!PrerequisiteFiles.Contains(file, StringComparer.OrdinalIgnoreCase)) PrerequisiteFiles.Add(file);
+        }
         internal void MarkBlocked(string failedDependency) => Reason = "not started: dependency failed (" + failedDependency + ")";
         public IEnumerable<string> CurrentInputs() => _declaredInputs.Concat(SavedDependencies());
         private readonly bool _recreateOutputs;
@@ -326,7 +334,33 @@ namespace Beast.BuildTool
             _tracePath = tracePath;
         }
 
-        public void AddCommand(CommandContext command) => _commands.Enqueue(command);
+        private readonly Dictionary<string, CommandContext> _producers = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(string Path, IReadOnlyCollection<CommandContext> Actions)> _partialTraces = [];
+        private readonly object _gate = new();
+
+        public void AddCommand(CommandContext command)
+        {
+            lock (_gate)
+            {
+                foreach (string output in command.ProducedFiles) _producers.TryAdd(Path.GetFullPath(output), command);
+                _commands.Enqueue(command);
+            }
+        }
+
+        /// <summary>Number of planned actions (planning appends; a target's actions are a contiguous range).</summary>
+        public int Count => _commands.Count;
+
+        /// <summary>The planned action that produces <paramref name="file"/>, or null.</summary>
+        public CommandContext? FindProducer(string file)
+        {
+            lock (_gate) return _producers.GetValueOrDefault(Path.GetFullPath(file));
+        }
+
+        /// <summary>Also writes a trace of these actions only (one target's view of a shared graph) to <paramref name="path"/>.</summary>
+        public void AddTrace(string path, IReadOnlyCollection<CommandContext> actions) => _partialTraces.Add((path, actions));
+
+        /// <summary>The planned graph, without running anything (beast graph).</summary>
+        public BuildActionGraph PlanGraph() => new(_commands.ToList());
 
         public async Task ExecuteAsync(CancellationToken externalToken = default)
         {
@@ -343,13 +377,17 @@ namespace Beast.BuildTool
             finally
             {
                 _cts = null;
-                if (_tracePath != null)
+                var traces = new List<(string Path, IReadOnlyCollection<CommandContext> Actions)>();
+                if (_tracePath != null) traces.Add((_tracePath, graph.Actions.ToList()));
+                traces.AddRange(_partialTraces);
+                foreach (var (path, actions) in traces)
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(_tracePath)!);
-                    File.WriteAllText(_tracePath, System.Text.Json.JsonSerializer.Serialize(new
+                    var ids = actions.ToHashSet();
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(new
                     {
                         executor = "Local", elapsedMs = timer.Elapsed.TotalMilliseconds,
-                        actions = graph.Actions.Select(a => new
+                        actions = graph.Actions.Where(ids.Contains).Select(a => new
                         {
                             id = a.Id, description = a.Description, status = a.Status.ToString(), skipped = a.WasSkipped,
                             cacheHit = a.CacheHit, remote = a.RemoteExecuted, reason = a.Reason,

@@ -172,4 +172,102 @@ check 'grep -q "include root .* does not exist" "$work/last.log"' 'missing inclu
 config 'c["includeRoots"] = ["Source/Runtime"]'
 pass 'migrate (ThirdPartyDependices), thirdPartyDirectory, validation'
 
+# ---------------------------------------------------------------------------------------------
+# One build graph for the target and its dependency targets: the application's compilation does not
+# wait for the engine library's link, its link does; per-target traces keep their own actions;
+# 'beast graph' prints the same plan (JSON on stdout, DOT) without building.
+# ---------------------------------------------------------------------------------------------
+graph_json="$work/graph.json"
+"${tool[@]}" graph "$project" --target Engine --config Debug >"$graph_json" 2>"$work/last.log" || { cat "$work/last.log"; echo "FAIL: beast graph"; exit 1; }
+python3 - "$graph_json" "$so" <<'EOF2'
+import json, sys
+g = json.load(open(sys.argv[1])); so = sys.argv[2]
+by = {a["id"]: a for a in g["actions"]}
+def find(prefix):
+    hits = [a for a in g["actions"] if a["description"].startswith(prefix)]
+    assert len(hits) == 1, (prefix, [a["description"] for a in g["actions"]])
+    return hits[0]
+def closure(a):
+    seen, stack = set(), list(a["dependencies"])
+    while stack:
+        i = stack.pop()
+        if i in seen: continue
+        seen.add(i); stack.extend(by[i]["dependencies"])
+    return seen
+engine_link = find("Linking libBeastEngine." + so)
+main = find("Compiling Main.cpp")
+app_link = find("Linking Engine")
+assert engine_link["id"] in app_link["dependencies"], "application link does not wait for the engine library"
+assert engine_link["id"] not in closure(main), "application compilation waits for the engine link"
+assert {a["target"] for a in g["actions"]} >= {t for t in g["targets"]} and len(g["targets"]) == 2, g["targets"]
+assert main["target"].endswith("/Engine") and engine_link["target"].endswith("/BeastEngine")
+assert g["depth"] >= 3
+EOF2
+check '[[ $? -eq 0 ]]' 'graph structure'
+"${tool[@]}" graph "$project" --target Engine --config Debug --format dot --output "$work/graph.dot" >"$work/last.log" 2>&1 || { cat "$work/last.log"; exit 1; }
+check 'head -1 "$work/graph.dot" | grep -q "^digraph BeastBuild" && grep -q "cluster_1" "$work/graph.dot" && grep -q " -> " "$work/graph.dot"' 'DOT graph'
+beast_fails graph "$project" --target Engine --format svg
+check 'grep -q "Unknown graph format" "$work/last.log"' 'unknown graph format accepted'
+rm -rf "$project/Intermediate" "$project/Binaries"
+beast build "$project" --target Engine --config Debug
+check '[[ $(grep -c "Done:" "$work/last.log") -eq 1 ]]' 'build ran more than one graph'
+traces="$project/Intermediate/Build/$platform/Debug"
+python3 - "$traces" "$so" <<'EOF2'
+import json, sys, os
+root, so = sys.argv[1], sys.argv[2]
+whole = json.load(open(os.path.join(root, "Engine", "BuildGraph.json")))["actions"]
+engine = json.load(open(os.path.join(root, "BeastEngine", "BuildTrace.json")))["actions"]
+app = json.load(open(os.path.join(root, "Engine", "BuildTrace.json")))["actions"]
+names = lambda actions: {a["description"] for a in actions}
+assert names(engine) | names(app) == names(whole), (names(engine), names(app), names(whole))
+assert not (names(engine) & names(app))
+assert any(d.startswith("Linking libBeastEngine") for d in names(engine)) and any(d.startswith("Linking Engine") for d in names(app))
+assert all(a["status"] == "Completed" for a in whole)
+EOF2
+check '[[ $? -eq 0 ]]' 'BuildGraph.json / per-target BuildTrace.json'
+run_engine
+check 'grep -q "^engine 42 vulkan 0 10$" "$work/engine.log"' 'clean build in one graph'
+pass 'one build graph across targets (edges, traces, beast graph json/dot)'
+
+# A generated header of the engine library (BuildStep of Core) read by the application, another
+# target: the application's compilation depends on the generator itself; a changed generator input
+# recompiles the application's source, not unrelated actions.
+put Source/Runtime/Core/Tools/version.py 'import sys, pathlib
+out = pathlib.Path(sys.argv[2]); out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text("#pragma once\n#define ENGINE_VERSION " + pathlib.Path(sys.argv[1]).read_text().strip() + "\n")'
+put Source/Runtime/Core/Version.txt '7'
+python3 - "$project/Source/Runtime/Core/Core.Build.cs" <<'EOF2'
+import sys
+p = sys.argv[1]; s = open(p, encoding="utf-8-sig").read()
+s = s.replace('PublicIncludePaths.Add("Public");', 'PublicIncludePaths.Add("Public"); PublicIncludePaths.Add("{GeneratedDir}"); var step = new BuildStep { Name = "Version", Executable = "python3" }; step.Arguments.AddRange(new[] { "{ModuleDir}/Tools/version.py", "{ModuleDir}/Version.txt", "{GeneratedDir}/EngineVersion.h" }); step.Inputs.AddRange(new[] { "Tools/version.py", "Version.txt" }); step.Outputs.Add("EngineVersion.h"); BuildSteps.Add(step);')
+open(p, "w", encoding="utf-8").write(s)
+EOF2
+put Source/Runtime/Launch/Private/Main.cpp '#include "Core/Public/Core.h"
+#include "mathlib/mathlib.h"
+#include "EngineVersion.h"
+#include <cstdio>
+int main() { std::printf("engine %d %s %d %d v%d\n", CoreValue(), CoreRhi(), CoreTracing(), MathTwice(5), ENGINE_VERSION); return 0; }'
+"${tool[@]}" graph "$project" --target Engine --config Debug >"$graph_json" 2>"$work/last.log" || { cat "$work/last.log"; exit 1; }
+python3 - "$graph_json" <<'EOF2'
+import json, sys
+g = json.load(open(sys.argv[1]))
+gen = [a for a in g["actions"] if a["description"].startswith("Generating Core/Version")]
+main = [a for a in g["actions"] if a["description"].startswith("Compiling Main.cpp")]
+assert len(gen) == 1 and len(main) == 1
+assert gen[0]["id"] in main[0]["dependencies"], "application compile does not depend on the engine generator"
+assert any(i.endswith("EngineVersion.h") for i in main[0]["inputs"]), "generated header is not an input of the consumer"
+assert gen[0]["target"].endswith("/BeastEngine")
+EOF2
+check '[[ $? -eq 0 ]]' 'cross-target generated header edge'
+rm -rf "$project/Intermediate" "$project/Binaries"
+beast build "$project" --target Engine --config Debug
+run_engine
+check 'grep -q "^engine 42 vulkan 0 10 v7$" "$work/engine.log"' 'clean build with a cross-target generated header'
+put Source/Runtime/Core/Version.txt '8'
+beast build "$project" --target Engine --config Debug
+run_engine
+check 'grep -q " v8$" "$work/engine.log"' 'generator input change not propagated to the application'
+check 'grep -q "Compiling Main.cpp" "$work/last.log"' 'consumer not recompiled'
+pass 'generated files across targets (precise inputs, clean build, incremental)'
+
 echo "All $passed engine integration checks passed ($work)."

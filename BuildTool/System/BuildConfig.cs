@@ -27,6 +27,7 @@ public sealed class BuildConfig
 
     /// <summary>Vendored libraries (ModulesInfo.ThirdPartyDirectory), relative to the project root; read per project (ProjectSettings).</summary>
     [JsonPropertyName("thirdPartyDirectory")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ThirdPartyDirectory { get; set; }
 
     /// <summary>Base include directories besides Source/, relative to the project root; read per project (ProjectSettings).</summary>

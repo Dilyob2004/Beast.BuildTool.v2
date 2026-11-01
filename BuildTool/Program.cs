@@ -28,6 +28,7 @@ internal static class Program
                 "clean" => Clean(commandLine),
                 "test" => await Test(commandLine),
                 "watch" => await Watch(commandLine),
+                "graph" => await Graph(commandLine),
                 "install" => await Install(commandLine, package: false),
                 "package" => await Install(commandLine, package: true),
                 "worker" => await SharedQueueWorker.RunAsync(commandLine),
@@ -106,6 +107,26 @@ internal static class Program
         string? runTarget = args.HasFlag("run") ? ResolveRunnable(project, platforms[0], configuration, targetName) : null;
         await new GenericProjectBuilder().BuildAsync(project, new DirectoryInfo(project).Name, platforms, configuration, targetName);
         return runTarget == null ? 0 : await Launch(args, project, platforms[0], configuration, runTarget);
+    }
+
+    /// <summary>graph: the build graph build would run (JSON or DOT), without running an action.</summary>
+    private static async Task<int> Graph(CommandLine args)
+    {
+        // stdout carries the graph unless --output names a file.
+        if (GetOptionalArgument(args, "output") == null) Log.UseStandardError = true;
+        var (project, platforms, configuration, targets) = Prepare(args, null);
+        if (targets.Count > 1) throw new ArgumentException("graph takes one --target.");
+        string format = (GetOptionalArgument(args, "format") ?? "json").ToLowerInvariant();
+        string text = await new GenericProjectBuilder().DescribeGraphAsync(project, new DirectoryInfo(project).Name, platforms, configuration, targets.FirstOrDefault(), format);
+        if (GetOptionalArgument(args, "output") is { } output)
+        {
+            string path = Path.GetFullPath(output);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+            Log.TraceInfo($"Wrote the build graph to {path}");
+        }
+        else Console.Out.Write(text);
+        return 0;
     }
 
     /// <summary>run: builds (unless --no-build) and starts an application: Windows EXE or Android APK.</summary>
@@ -287,11 +308,13 @@ Beast BuildTool
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
-  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait --headless]
+  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--option NAME=VALUE ...] [--stop-on-error] [--run --avd <name> --wait --headless]
   beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait] [--headless]
   beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols] [--dmg [--notarize]]
+  beast graph [project-path] [--target <name>] [--platform ...] [--config ...] [--format json|dot] [--output <file>] [--option NAME=VALUE]
+        (the action graph build would run: targets, dependency edges, critical path; nothing is built)
   beast watch [project-path] [--target <name>] [--platform ...] [--config ...] [--on-success "<command>"] [--versioned] [--device <serial>] [--debounce <ms>]
         (rebuilds on changes in Source/ and Config/ of the project and its external projects; Ctrl+C stops)
   beast clean [project-path] [--target <name>]   (without --target: the whole Intermediate/Build)
