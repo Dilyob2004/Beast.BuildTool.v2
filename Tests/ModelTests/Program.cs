@@ -534,5 +534,32 @@ Test("Android toolchain discovery", () =>
     }
 });
 
+Test("missing include parsing (clang, GCC, MSVC)", () =>
+{
+    var found = IncludeHints.MissingIncludes([
+        "Main.cpp:1:10: fatal error: 'Core/Public/Core.h' file not found",
+        "Main.cpp:2:10: fatal error: mathlib/mathlib.h: No such file or directory",
+        @"C:\G\Main.cpp(3): fatal error C1083: Cannot open include file: 'Render\Public\Render.h': No such file or directory",
+        "Main.cpp:1:10: fatal error: 'Core/Public/Core.h' file not found",
+        "Main.cpp:9: error: expected ';'"]);
+    Check(found.SequenceEqual(["Core/Public/Core.h", "mathlib/mathlib.h", "Render/Public/Render.h"]), "parsed: " + string.Join(", ", found));
+});
+
+Test("build options and command line", () =>
+{
+    var line = new CommandLine(["build", "--option", "RHI=DX12", "--option=Tracing=on", "--option", "RHI=Vulkan"]);
+    Check(line.GetArguments("option").SequenceEqual(["RHI=DX12", "Tracing=on", "RHI=Vulkan"]), "repeated --option");
+    BuildOptions.SetOverrides(line.GetArguments("option"));
+    try
+    {
+        Check(BuildOptions.Current["rhi"] == "Vulkan" && BuildOptions.Current["Tracing"] == "on", "later --option wins, names ignore case");
+        Check(BuildOptions.ParseBool("Tracing", "on") && !BuildOptions.ParseBool("Tracing", "0"), "bool parsing");
+        Expect(() => BuildOptions.ParseBool("Tracing", "maybe"), "must be a boolean");
+        Expect(() => BuildOptions.SetOverrides(["NoValue"]), "NAME=VALUE");
+        Expect(() => BuildOptions.SetOverrides(["1x=2"]), "invalid option name");
+    }
+    finally { BuildOptions.SetOverrides([]); }
+});
+
 Console.WriteLine(failures == 0 ? $"PASS: model tests ({root})" : $"{failures} model test(s) failed ({root})");
 return failures == 0 ? 0 : 1;

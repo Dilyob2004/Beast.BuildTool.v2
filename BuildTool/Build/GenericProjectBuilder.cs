@@ -26,7 +26,8 @@ public sealed class GenericProjectBuilder
             Path.Combine(first.Model.BuildDirectory(first.Platform.PlatformName, configuration, first.Target.Name), "BuildGraph.json"));
         var planned = await PlanAsync(executor, plans, projectPath, projectName, configuration);
         foreach (var item in planned) executor.AddTrace(item.TracePath, item.Actions);
-        await executor.ExecuteAsync();
+        try { await executor.ExecuteAsync(); }
+        catch (InvalidOperationException) { ReportIncludeHints(planned); throw; }
         var androidOutputs = new List<AndroidAbiOutput>();
         foreach (var item in planned)
         {
@@ -35,6 +36,17 @@ public sealed class GenericProjectBuilder
         }
         if (androidOutputs.Count > 0) await AndroidPackager.PackageAsync(projectPath, androidOutputs[0].Target, configuration, androidOutputs);
         if (MacPlatform.IsUniversal(platforms)) await MacPlatform.MergeUniversalAsync(projectPath, configuration);
+    }
+
+    /// <summary>Missing #include of a failed compilation: which module provides it and what to declare.</summary>
+    private static void ReportIncludeHints(IEnumerable<PlannedTarget> planned)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in planned)
+            foreach (var (action, module) in item.ModuleOf)
+                if (action.Status == CommandStatus.Failed)
+                    foreach (string hint in IncludeHints.For(item.Model, module, action.Output))
+                        if (reported.Add(hint)) Log.TraceError(hint);
     }
 
     /// <summary>
@@ -136,6 +148,9 @@ public sealed class GenericProjectBuilder
         IReadOnlyList<string> finalOutputs, AndroidAbiOutput? android, BuildStepPlan steps, Action finish)
     {
         public BuildStepPlan Steps { get; } = steps;
+        public ProjectModel Model { get; init; } = null!;
+        /// <summary>The module each compile action belongs to (include hints after a failure).</summary>
+        public Dictionary<CommandContext, ModuleRules> ModuleOf { get; } = [];
         public BuildTarget Target { get; } = target;
         public Platform Platform { get; } = platform;
         /// <summary>BuildTrace.json of the target: its own actions of the shared graph.</summary>
@@ -154,6 +169,7 @@ public sealed class GenericProjectBuilder
         TargetConfiguration configuration, IReadOnlyDictionary<BuildTarget, PlannedTarget> plannedTargets)
     {
         int firstAction = executor.Count;
+        var moduleOf = new Dictionary<CommandContext, ModuleRules>();
         // Response and link files of a shared external target live in its own project, as when it builds itself.
         using var planningRoot = GlobalEnvironment.PlanFor(model.TargetRoot(target));
         bool sharedTarget = model.SharedProjectOf(target) != null;
@@ -199,7 +215,9 @@ public sealed class GenericProjectBuilder
             steps.ConfigureCompilation(model, module, cpp, model.TargetDependencies(target).Select(t => plannedTargets.GetValueOrDefault(t)?.Steps).OfType<BuildStepPlan>());
             modulePlan.Apply(module, cpp, sources);
             sources = ModuleCompilation.Prepare(module, cpp, sources, Path.Combine(buildPath, "Generated", module.ModuleName), steps.DeclaredOutputs);
+            int moduleFirstAction = executor.Count;
             var objects = platform.CompileCppFiles(executor, cpp, sources, Path.Combine(buildPath, "Objects", module.ModuleName));
+            foreach (var action in executor.GetResults().Skip(moduleFirstAction)) moduleOf[action] = module;
             objectsByModule.Add(module.ModuleName, objects.ObjectFiles.ToList());
             // Root modules supply entry points directly (NativeActivity exports must not be discarded).
             if (target.Rules.Type == TargetType.StaticLibrary || target.Rules.Modules.Contains(module.ModuleName))
@@ -343,7 +361,8 @@ public sealed class GenericProjectBuilder
         {
             RemoveStaleRuntimeFiles(buildPath, outputPath, runtimeFiles.Concat(bundleResources).ToList());
             InstallManifest.Write(model, target, platform, configuration, buildPath, outputPath, baseName, link, runtimeFiles, steps);
-        });
+        }) { Model = model };
+        foreach (var (action, module) in moduleOf) result.ModuleOf[action] = module;
         if (target.Rules.Type == TargetType.SharedLibrary)
             result.LoadedProducts.AddRange(actions.Where(a => a.Type == CommandType.Link && IsFinalOutput(a)).SelectMany(a => a.ProducedFiles)
                 .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".dll" or ".pdb" or ".so" or ".dylib"));

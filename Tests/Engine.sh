@@ -277,6 +277,31 @@ for _ in 1 2 3; do
 done
 pass 'generated files across targets (precise inputs, clean build, incremental)'
 
+# A module that includes headers of modules it does not depend on (rules ported from a tool that
+# merged all settings): the failed build names the providing module and the dependency to add.
+put Source/Runtime/Renderer/Renderer.Build.cs 'using Beast.BuildTool;
+public class Renderer : ModuleRules { public Renderer(ModulesInfo Info) { PublicIncludePaths.Add("Public"); } }'
+put Source/Runtime/Renderer/Private/Renderer.cpp '#include "Core/Public/Core.h"
+#include "mathlib/mathlib.h"
+int RenderValue() { return CoreValue() + MathTwice(1); }'
+cp "$project/Source/BeastEngine.Target.cs" "$work/BeastEngine.Target.cs"
+sed -i.bak 's/Modules.Add("Core");/Modules.Add("Core"); Modules.Add("Renderer");/' "$project/Source/BeastEngine.Target.cs" && rm -f "$project/Source/BeastEngine.Target.cs.bak"
+beast_fails build "$project" --target BeastEngine --config Debug
+# Core/Public/Core.h resolves through the include root (visible to every module, like Source/);
+# mathlib's header only through a dependency.
+check 'grep -q "'"'"'mathlib/mathlib.h'"'"' is provided by module '"'"'mathlib'"'"'.*PrivateDependencies.Add(\"mathlib\").*Renderer.Build.cs" "$work/last.log"' 'no hint for a header of another module'
+check '[[ $(grep -c "is provided by module" "$work/last.log") -eq 1 ]]' 'hint repeated or for a visible header'
+sed -i.bak 's/PublicIncludePaths.Add("Public"); }/PublicIncludePaths.Add("Public"); PrivateDependencies.Add("Core"); }/' "$project/Source/Runtime/Renderer/Renderer.Build.cs" && rm -f "$project/Source/Runtime/Renderer/Renderer.Build.cs.bak"
+# Core exposes mathlib publicly (ThirdPartyDependices = PublicDependencies): through Core, Renderer sees it too.
+beast build "$project" --target BeastEngine --config Debug
+put Source/Runtime/Renderer/Private/Renderer.cpp '#include "Launch/Private/Missing.h"
+int RenderValue() { return 0; }'
+beast_fails build "$project" --target BeastEngine --config Debug
+check '! grep -q "is provided by module" "$work/last.log"' 'hint for a header that does not exist'
+rm -rf "$project/Source/Runtime/Renderer"; cp "$work/BeastEngine.Target.cs" "$project/Source/BeastEngine.Target.cs"
+beast build "$project" --target Engine --config Debug
+pass 'missing-header hints (providing module, dependency to declare)'
+
 # ---------------------------------------------------------------------------------------------
 # A game project that uses the engine with "build": "shared": the engine's targets build in the
 # engine's own Intermediate/Binaries (the tree the engine and its editor use), so a game build after
