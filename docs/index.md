@@ -19,10 +19,15 @@
 - **Модули C++20**: `.ixx`/`.cppm`, разделы, `import` между целями, `import std` (MSVC, Clang, GCC).
 - **Шаблоны `new`**: консольная программа (Windows, Linux), NativeActivity (Android), AppKit (macOS),
   UIKit (iOS).
-- **Команды** `build`, `run`, `test`, `watch`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
+- **Команды** `build`, `graph`, `run`, `test`, `watch`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
-- **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
-  продолжение после ошибок, общий кеш и worker.
+- **Инкрементальная сборка**: один граф действий на всю сборку (цели, зависимости, инструменты, ABI),
+  `beast graph` (JSON/DOT), контентный кеш, зависимости заголовков от компилятора, продолжение после
+  ошибок, подсказки недостающих зависимостей, общий кеш и worker.
+- **Движок и игры**: внешние проекты в общем дереве (`"build": "shared"`), `includeRoots`,
+  `thirdPartyDirectory`, опции сборки (`--option`), общие `*.Rules.cs`, шаги с программой проекта
+  (`target:<Имя>`), решение Visual Studio на несколько проектов (`generate --workspace`), совместимость с
+  правилами первого Beast BuildTool.
 - **IDE**: `.sln`/`.vcxproj` с IntelliSense и отладчиком Visual Studio; проект Xcode (сборка, запуск
   под LLDB, iOS Simulator); `.vscode` (задачи, F5); `compile_commands.json` для clangd и CLion.
 - **Хосты**: Windows, Linux, macOS; готовые сборки Beast без установки .NET.
@@ -41,6 +46,7 @@
 10. [Ускорение сборки](acceleration.md)
 11. [Проверки и CI](testing.md)
 12. [Пересборка при изменениях (watch) и версии](watch.md)
+13. [Граф сборки](graph.md)
 
 ## Ограничения
 

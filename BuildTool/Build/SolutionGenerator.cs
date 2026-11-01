@@ -31,7 +31,12 @@ public static class SolutionGenerator
         public string Condition => $"'$(Configuration)|$(Platform)'=='{Key}'";
     }
 
-    public static void Generate(string projectDir, string projectName)
+    /// <summary>What generation wrote for one project: its VS projects (targets) and configurations.</summary>
+    public sealed record SolutionInfo(string ProjectDirectory, string Name, IReadOnlyList<SolutionProject> Projects, IReadOnlyList<string> Configurations);
+    /// <param name="External">A target of an external project (its sources are not this project's).</param>
+    public sealed record SolutionProject(string Target, string Path, string Guid, bool External);
+
+    public static SolutionInfo Generate(string projectDir, string projectName)
     {
         projectDir = Path.GetFullPath(projectDir);
         using var projectLock = ProjectBuildLock.AcquireAsync(projectDir).GetAwaiter().GetResult();
@@ -39,13 +44,14 @@ public static class SolutionGenerator
         AndroidPlatform? android = null;
         try { android = PlatformFactory.Create("Android", null)[0] as AndroidPlatform; }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException) { Log.TraceVerbose("Android configurations skipped: " + ex.Message); }
-        Generate(projectDir, projectName, new WindowsPlatform(),
+        return Generate(projectDir, projectName, new WindowsPlatform(),
             WindowsPlatform.IsInstalled(PlatformArch.ARM64) ? new WindowsPlatform(PlatformArch.ARM64) : null, android);
     }
 
     /// <summary>Platforms are passed in so that generation is testable without Visual Studio.</summary>
-    internal static void Generate(string projectDir, string projectName, Platform platform, Platform? windowsArm64, Platform? android)
+    internal static SolutionInfo Generate(string projectDir, string projectName, Platform platform, Platform? windowsArm64, Platform? android)
     {
+        var generated = new List<SolutionProject>();
         var configurations = new[] { TargetConfiguration.Debug, TargetConfiguration.Development, TargetConfiguration.Release };
         var vs = new List<VsConfiguration>();
         void Add(Platform target, string vsPlatform, string prefix, string arguments, bool android)
@@ -69,6 +75,8 @@ public static class SolutionGenerator
         string exe = Environment.ProcessPath ?? "Beast.BuildTool.exe";
         bool viaDotnet = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
         string toolCommand = viaDotnet ? $"\"{exe}\" \"{typeof(SolutionGenerator).Assembly.Location}\"" : $"\"{exe}\"";
+        // --option values given to generate are kept by the IDE's builds (BuildConfig.json "options" apply anyway).
+        string options = string.Concat(BuildOptions.OverrideArguments.Chunk(2).Select(o => $" {o[0]} &quot;{Escape(o[1])}&quot;"));
         string escapedProject = Escape(projectDir);
         string escapedToolCommand = Escape(toolCommand);
         var items = CollectProjectItems(projectDir);
@@ -101,7 +109,7 @@ public static class SolutionGenerator
                 string output = c.Android
                     ? (target.Rules.Type == TargetType.Application ? target.Name + ".apk" : "lib" + target.Name + (target.Rules.Type == TargetType.StaticLibrary ? ".a" : ".so"))
                     : target.Name + (target.Rules.Type == TargetType.StaticLibrary ? ".lib" : target.Rules.Type == TargetType.SharedLibrary ? ".dll" : ".exe");
-                string build = $"{escapedToolCommand} build &quot;{escapedProject}&quot;{targetArgument} {c.PlatformArguments} --config {c.Configuration}";
+                string build = $"{escapedToolCommand} build &quot;{escapedProject}&quot;{targetArgument} {c.PlatformArguments} --config {c.Configuration}{options}";
                 string clean = $"{escapedToolCommand} clean &quot;{escapedProject}&quot;{targetArgument}";
                 // F5: the Windows EXE; for an Android application, Beast's run command (install + launch on a device/emulator).
                 string debugger = "", debuggerArguments = "";
@@ -138,6 +146,7 @@ public static class SolutionGenerator
             xml.AppendLine("</Project>");
             File.WriteAllText(vcxproj, xml.ToString(), Encoding.UTF8);
             WriteProjectFilters(vcxproj + ".filters", items);
+            generated.Add(new SolutionProject(target.Name, vcxproj, projectGuid, target.ExternalProject != null));
             solutionProjects.AppendLine($"Project(\"{{BC8A1FFA-BEE3-4634-8014-F334798102B3}}\") = \"{target.Name}\", \"{target.Name}.vcxproj\", \"{projectGuid}\"");
             solutionProjects.AppendLine("EndProject");
             foreach (var c in vs)
@@ -159,6 +168,73 @@ public static class SolutionGenerator
         sln.AppendLine("\tEndGlobalSection");
         sln.AppendLine("EndGlobal");
         File.WriteAllText(Path.Combine(projectDir, projectName + ".sln"), sln.ToString(), Encoding.UTF8);
+        return new SolutionInfo(projectDir, projectName, generated, vs.Select(c => c.Key).ToList());
+    }
+
+    /// <summary>
+    /// 'generate --workspace &lt;file.sln&gt; &lt;projects...&gt;': one solution with the targets of several
+    /// projects (an engine and its game projects), each project in a solution folder. A target of an
+    /// external project appears once: from its own project when that one is in the workspace, else
+    /// from the first project that uses it. Every VS project keeps building through its own project.
+    /// </summary>
+    public static string WriteWorkspace(string solutionPath, IReadOnlyList<SolutionInfo> solutions)
+    {
+        solutionPath = Path.GetFullPath(solutionPath);
+        string directory = Path.GetDirectoryName(solutionPath)!;
+        var chosen = new List<(SolutionInfo Owner, SolutionProject Project)>();
+        bool Has(string target) => chosen.Any(c => c.Project.Target.Equals(target, StringComparison.OrdinalIgnoreCase));
+        foreach (var solution in solutions)
+            foreach (var project in solution.Projects.Where(p => !p.External))
+            {
+                if (Has(project.Target))
+                    throw new InvalidOperationException($"Target '{project.Target}' is defined by two projects of the workspace; Visual Studio needs unique project names.");
+                chosen.Add((solution, project));
+            }
+        foreach (var solution in solutions)
+            foreach (var project in solution.Projects.Where(p => p.External && !Has(p.Target))) chosen.Add((solution, project));
+        var configurations = solutions.SelectMany(s => s.Configurations).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        string Folder(SolutionInfo solution) => GuidFor("folder|" + solution.ProjectDirectory.ToUpperInvariant());
+        var sln = new StringBuilder();
+        sln.AppendLine("Microsoft Visual Studio Solution File, Format Version 12.00");
+        sln.AppendLine("# Visual Studio Version 17");
+        foreach (var solution in solutions)
+        {
+            sln.AppendLine($"Project(\"{{2150E333-8FDC-42A3-9474-1A3956D46DE8}}\") = \"{solution.Name}\", \"{solution.Name}\", \"{Folder(solution)}\"");
+            sln.AppendLine("EndProject");
+        }
+        foreach (var (_, project) in chosen)
+        {
+            sln.AppendLine($"Project(\"{{BC8A1FFA-BEE3-4634-8014-F334798102B3}}\") = \"{project.Target}\", \"{Path.GetRelativePath(directory, project.Path).Replace('/', '\\')}\", \"{project.Guid}\"");
+            sln.AppendLine("EndProject");
+        }
+        sln.AppendLine("Global");
+        sln.AppendLine("\tGlobalSection(SolutionConfigurationPlatforms) = preSolution");
+        foreach (string key in configurations) sln.AppendLine($"\t\t{key} = {key}");
+        sln.AppendLine("\tEndGlobalSection");
+        sln.AppendLine("\tGlobalSection(ProjectConfigurationPlatforms) = postSolution");
+        foreach (var (owner, project) in chosen)
+            foreach (string key in configurations)
+            {
+                // A configuration the project lacks (no Android toolchain where it was generated) maps to its first one, unbuilt.
+                bool has = owner.Configurations.Contains(key, StringComparer.OrdinalIgnoreCase);
+                string mapped = has ? key : owner.Configurations[0];
+                sln.AppendLine($"\t\t{project.Guid}.{key}.ActiveCfg = {mapped}");
+                if (has) sln.AppendLine($"\t\t{project.Guid}.{key}.Build.0 = {mapped}");
+            }
+        sln.AppendLine("\tEndGlobalSection");
+        sln.AppendLine("\tGlobalSection(NestedProjects) = preSolution");
+        foreach (var (owner, project) in chosen) sln.AppendLine($"\t\t{project.Guid} = {Folder(owner)}");
+        sln.AppendLine("\tEndGlobalSection");
+        sln.AppendLine("EndGlobal");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(solutionPath, sln.ToString(), Encoding.UTF8);
+        return solutionPath;
+    }
+
+    private static string GuidFor(string text)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(text));
+        return "{" + new Guid(hash[..16]).ToString().ToUpperInvariant() + "}";
     }
 
     private static string CreateIntelliSenseProperties(IReadOnlyList<VsConfiguration> configurations)

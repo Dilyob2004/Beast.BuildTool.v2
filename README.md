@@ -27,8 +27,12 @@ Windows, Linux, macOS, iOS и Android, сама исполняет граф сб
   UIKit (iOS).
 - **Команды** `build`, `run`, `test`, `watch`, `install`, `package`, `generate`, `migrate`, `clean`; пакеты
   vcpkg и Conan 2; `install` пишет пакеты CMake (`find_package`) и pkg-config.
-- **Инкрементальная сборка**: граф действий, контентный кеш, зависимости заголовков от компилятора,
-  продолжение после ошибок, общий кеш и worker.
+- **Инкрементальная сборка**: один граф действий на всю сборку (цели, зависимости, инструменты),
+  `beast graph`, контентный кеш, зависимости заголовков от компилятора, продолжение после ошибок,
+  подсказки недостающих зависимостей, общий кеш и worker.
+- **Движок и игры**: внешний проект в общем дереве сборки (`"build": "shared"`), `includeRoots`,
+  `thirdPartyDirectory`, опции `--option`, общие `*.Rules.cs`, шаги с программой проекта, решение
+  Visual Studio на несколько проектов, совместимость с правилами первого Beast BuildTool.
 - **IDE**: `.sln`/`.vcxproj` с IntelliSense и отладчиком Visual Studio; проект Xcode (сборка, запуск
   под LLDB, iOS Simulator); `.vscode` (задачи, F5); `compile_commands.json` для clangd и CLion.
 - **Хосты**: Windows, Linux, macOS; готовые сборки Beast без установки .NET.
@@ -89,6 +93,7 @@ Android-тулчейн (JDK 17, SDK, NDK, по желанию эмулятор) 
 | [IDE и редакторы](docs/ide.md) | Visual Studio, Xcode, VS Code, CLion, clangd |
 | [Ускорение сборки](docs/acceleration.md) | кеш, общий кеш, worker |
 | [Проверки и CI](docs/testing.md) | тесты Beast, GitHub Actions, выпуск версий |
+| [Граф сборки](docs/graph.md) | один граф на сборку, `beast graph`, причины пересборки, подсказки зависимостей |
 
 Правила `.Build.cs`/`.Target.cs` выполняют C# код: собирайте только доверенные проекты.
 

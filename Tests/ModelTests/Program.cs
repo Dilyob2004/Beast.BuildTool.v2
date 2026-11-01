@@ -240,6 +240,32 @@ Test("external projects", () =>
     finally { BuildConfigManager.Config.ExternalProjects = []; }
     Check(File.Exists(Path.Combine(app, "SDK.vcxproj")) && File.ReadAllText(Path.Combine(app, "App.sln")).Contains("SDK.vcxproj"), "SDK.vcxproj");
     Check(File.ReadAllText(Path.Combine(app, "App.vcxproj.filters")).Contains(@"External\SDK\Source\Widgets"), "external sources in filters");
+
+    // "build": "shared": the SDK target builds in the SDK's own tree.
+    var sharedModel = ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "../SDK", Build = "shared" }]);
+    var sharedSdk = sharedModel.Targets.Single(t => t.Name == "SDK");
+    Check(sharedModel.SharedProjectOf(sharedSdk)?.Directory == sdk && sharedModel.TargetRoot(sharedSdk) == sdk, "shared external project");
+    Check(sharedModel.BuildDirectory(arm64.PlatformName, TargetConfiguration.Debug, "SDK") == Path.Combine(sdk, "Intermediate", "Build", arm64.PlatformName, "Debug", "SDK"), "shared build directory");
+    Check(sharedModel.BinariesDirectory(arm64.PlatformName, TargetConfiguration.Debug, sharedSdk) == Path.Combine(sdk, "Binaries", arm64.PlatformName, "Debug"), "shared binaries");
+    Check(sharedModel.BinariesDirectory(arm64.PlatformName, TargetConfiguration.Debug, sharedModel.SelectTarget(null)) == Path.Combine(app, "Binaries", arm64.PlatformName, "Debug"), "application binaries");
+    Expect(() => ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "../SDK", Build = "copy" }]), "must be \"local\" or \"shared\"");
+
+    // Workspace: SDK and App in one solution; SDK appears once (its own project), each in a folder;
+    // --option values given to generate reach the IDE's build commands.
+    BuildOptions.SetOverrides(["RHI=DX12"]);
+    SolutionGenerator.SolutionInfo appSolution, sdkSolution;
+    BuildConfigManager.Config.ExternalProjects = externals;
+    try { appSolution = SolutionGenerator.Generate(app, "App", arm64, x64, arm64); }
+    finally { BuildConfigManager.Config.ExternalProjects = []; BuildOptions.SetOverrides([]); }
+    Check(File.ReadAllText(Path.Combine(app, "App.vcxproj")).Contains("--option &quot;RHI=DX12&quot;"), "--option in IDE build commands");
+    Write(Path.Combine(sdk, "Config", "BuildConfig.json"), "{}");
+    sdkSolution = SolutionGenerator.Generate(sdk, "SDK", arm64, x64, arm64);
+    string workspace = SolutionGenerator.WriteWorkspace(Path.Combine(root, "Ext", "Workspace.sln"), [sdkSolution, appSolution]);
+    string text = File.ReadAllText(workspace);
+    Check(System.Text.RegularExpressions.Regex.Matches(text, "\"SDK\", \"[^\"]*SDK\\.vcxproj\"").Count == 1, "SDK once in the workspace");
+    Check(text.Contains(@"SDK\SDK.vcxproj") && !text.Contains(@"App\SDK.vcxproj") && text.Contains(@"App\App.vcxproj"), "workspace projects from their own projects");
+    Check(text.Contains("2150E333-8FDC-42A3-9474-1A3956D46DE8") && text.Contains("NestedProjects") && text.Contains("Android Debug|x64"), "workspace folders and configurations");
+    Expect(() => SolutionGenerator.WriteWorkspace(Path.Combine(root, "Ext", "Twice.sln"), [appSolution, appSolution]), "unique project names");
 });
 
 Test("Android Java source destinations", () =>
@@ -532,6 +558,33 @@ Test("Android toolchain discovery", () =>
         (android.JavaHome, android.SdkRoot, android.NdkRoot, android.NdkVersion) = saved;
         foreach (var (name, value) in env) Environment.SetEnvironmentVariable(name, value);
     }
+});
+
+Test("missing include parsing (clang, GCC, MSVC)", () =>
+{
+    var found = IncludeHints.MissingIncludes([
+        "Main.cpp:1:10: fatal error: 'Core/Public/Core.h' file not found",
+        "Main.cpp:2:10: fatal error: mathlib/mathlib.h: No such file or directory",
+        @"C:\G\Main.cpp(3): fatal error C1083: Cannot open include file: 'Render\Public\Render.h': No such file or directory",
+        "Main.cpp:1:10: fatal error: 'Core/Public/Core.h' file not found",
+        "Main.cpp:9: error: expected ';'"]);
+    Check(found.SequenceEqual(["Core/Public/Core.h", "mathlib/mathlib.h", "Render/Public/Render.h"]), "parsed: " + string.Join(", ", found));
+});
+
+Test("build options and command line", () =>
+{
+    var line = new CommandLine(["build", "--option", "RHI=DX12", "--option=Tracing=on", "--option", "RHI=Vulkan"]);
+    Check(line.GetArguments("option").SequenceEqual(["RHI=DX12", "Tracing=on", "RHI=Vulkan"]), "repeated --option");
+    BuildOptions.SetOverrides(line.GetArguments("option"));
+    try
+    {
+        Check(BuildOptions.Current["rhi"] == "Vulkan" && BuildOptions.Current["Tracing"] == "on", "later --option wins, names ignore case");
+        Check(BuildOptions.ParseBool("Tracing", "on") && !BuildOptions.ParseBool("Tracing", "0"), "bool parsing");
+        Expect(() => BuildOptions.ParseBool("Tracing", "maybe"), "must be a boolean");
+        Expect(() => BuildOptions.SetOverrides(["NoValue"]), "NAME=VALUE");
+        Expect(() => BuildOptions.SetOverrides(["1x=2"]), "invalid option name");
+    }
+    finally { BuildOptions.SetOverrides([]); }
 });
 
 Console.WriteLine(failures == 0 ? $"PASS: model tests ({root})" : $"{failures} model test(s) failed ({root})");

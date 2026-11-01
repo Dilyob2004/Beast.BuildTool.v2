@@ -55,8 +55,21 @@ public sealed class BuildStepPlan
         if (Directory.Exists(path)) throw new InvalidOperationException($"Expected a file output, found directory: {path}");
     }
 
+    /// <summary>Resolves "target:&lt;Name&gt;" executables: the program of an Application target built in the same graph.</summary>
+    public Func<string, string>? ToolPath { get; set; }
+
+    public static bool IsToolReference(string executable) => executable.StartsWith("target:", StringComparison.OrdinalIgnoreCase);
+    public static string ToolName(string executable)
+    {
+        string name = executable["target:".Length..].Trim();
+        if (name.Length == 0) throw new InvalidOperationException("BuildStep.Executable 'target:' needs a target name, e.g. target:PakTool.");
+        return name;
+    }
+
     private string Executable(ModuleRules module, string value)
     {
+        if (IsToolReference(value.Trim()))
+            return ToolPath?.Invoke(ToolName(value.Trim())) ?? throw new InvalidOperationException($"{module.ModuleName}: build step tools (target:...) are not available here.");
         value = Expand(module, value);
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException($"{module.ModuleName}: BuildStep.Executable is required.");
         if (Path.GetExtension(value).ToLowerInvariant() is ".bat" or ".cmd" or ".ps1")
@@ -118,15 +131,20 @@ public sealed class BuildStepPlan
         return sources;
     }
 
-    public void ConfigureCompilation(ProjectModel model, ModuleRules module, CPPEnvironment environment)
+    /// <summary>Outputs of this plan's steps that compilation reads (AffectsCompilation), by module.</summary>
+    public IReadOnlyList<string> CompileInputsOf(string module) => compileInputs.TryGetValue(module, out var inputs) ? inputs : [];
+
+    /// <param name="providers">Plans of the dependency targets in the same build graph: generated files of
+    /// the modules they build are inputs of this compilation as well (not only an ordering by directory).</param>
+    public void ConfigureCompilation(ProjectModel model, ModuleRules module, CPPEnvironment environment, IEnumerable<BuildStepPlan>? providers = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var providerPlans = providers?.ToList() ?? [];
         void Visit(ModuleRules item)
         {
             if (!seen.Add(item.ModuleName)) return;
-            // Modules built by a dependency target are not part of this plan; their generated
-            // files already exist and reach the compiler through its dependency output.
             if (compileInputs.TryGetValue(item.ModuleName, out var inputs)) environment.AdditionalPrerequisites.AddRange(inputs);
+            else foreach (var provider in providerPlans) environment.AdditionalPrerequisites.AddRange(provider.CompileInputsOf(item.ModuleName));
             foreach (string name in item.PublicDependencies.Concat(item.PrivateDependencies)) Visit(model.Modules[name]);
         }
         Visit(module);
@@ -195,6 +213,13 @@ public sealed class BuildStepPlan
 
     internal static void AddCopyCommand(CommandExecutor executor, string input, string output, string allowedRoot, string states, string description)
     {
+        // One graph builds a target and its dependency targets: the same file copied to the same place
+        // by two of them (a package runtime DLL beside both the DLL and the EXE) is one action.
+        if (executor.FindProducer(output) is { } existing)
+        {
+            if (existing.Type == CommandType.Copy && existing.DeclaredInputs.Contains(input, StringComparer.OrdinalIgnoreCase)) return;
+            throw new InvalidOperationException($"Conflicting outputs for {output}: '{existing.Description}' and a copy of {input}.");
+        }
         executor.AddCommand(new CommandContext(typeof(BuildStepPlan).Assembly.Location, "copy-v1 " + JsonSerializer.Serialize(new[] { input, output }),
             CommandType.Copy, [output], [input, typeof(BuildStepPlan).Assembly.Location], true, description,
             statePath: Path.Combine(states, BuildCacheSession.HashText(output.ToUpperInvariant()) + ".json"),

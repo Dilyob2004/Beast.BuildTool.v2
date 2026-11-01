@@ -96,7 +96,8 @@ public sealed class ProjectModel
         var targets = new List<BuildTarget>();
         var allFiles = new List<string>();
         static List<string> RulesFilesOf(string project) => Directory.EnumerateFiles(Path.Combine(project, "Source"), "*.cs", SearchOption.AllDirectories)
-            .Where(f => f.EndsWith(".Build.cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.EndsWith(".Build.cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase)
+                || f.EndsWith(RulesHelperSuffix, StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
         string Owner(string? external) => external == null ? "this project" : $"external project '{external}'";
 
@@ -105,7 +106,8 @@ public sealed class ProjectModel
             if (files.Count == 0) return;
             var assembly = new Assembler(files, rulesCache).Build();
             var info = new ModulesInfo(configuration, platform, external == null ? null : project, external);
-            foreach (string file in files)
+            // *.Rules.cs: shared helpers (paths, option names, functions) compiled with the rules; they declare no module or target.
+            foreach (string file in files.Where(f => !f.EndsWith(RulesHelperSuffix, StringComparison.OrdinalIgnoreCase)))
             {
                 bool isTarget = file.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase);
                 string name = Path.GetFileName(file)[..^(isTarget ? ".Target.cs".Length : ".Build.cs".Length)];
@@ -162,6 +164,7 @@ public sealed class ProjectModel
                 Log.TraceWarning("This project has no *.Target.cs (legacy mode: all modules, merged settings). Legacy mode is deprecated; run 'beast migrate' to create a target.");
             }
         }
+        ApplyLegacyDependencies(modules);
         var model = new ProjectModel(directory, modules, targets, allFiles, platform.Type) { Externals = externals };
         foreach (var target in targets) model.ResolveModules(target);
         foreach (var target in targets) model.ValidateTargetDependencies(target);
@@ -254,11 +257,30 @@ public sealed class ProjectModel
         ? new string(module.ModuleName.Select(c => char.IsLetterOrDigit(c) ? char.ToUpperInvariant(c) : '_').ToArray()) + "_API"
         : module.ApiMacro.Length == 0 ? null : module.ApiMacro;
 
-    /// <summary>Build directory of a target (Intermediate/Build/platform/configuration/target).</summary>
-    public string BuildDirectory(string platformName, TargetConfiguration configuration, string targetName) =>
-        Targets.FirstOrDefault(t => t.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))?.ExternalProject is { } external
+    /// <summary>The external project of a target when it is built in that project's own tree ("build": "shared").</summary>
+    public ExternalProject? SharedProjectOf(BuildTarget target) => target.ExternalProject is { } name
+        ? Externals.FirstOrDefault(e => e.Shared && e.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) : null;
+
+    /// <summary>Root of the tree a target builds into: a shared external project's own root, else this project.</summary>
+    public string TargetRoot(BuildTarget target) => SharedProjectOf(target)?.Directory ?? ProjectDirectory;
+
+    /// <summary>
+    /// Build directory of a target (Intermediate/Build/platform/configuration/target): this project's,
+    /// under External/&lt;project&gt; for a local external target, the external project's own for a shared one.
+    /// </summary>
+    public string BuildDirectory(string platformName, TargetConfiguration configuration, string targetName)
+    {
+        var target = Targets.FirstOrDefault(t => t.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+        if (target != null && SharedProjectOf(target) is { } shared)
+            return Path.Combine(shared.Directory, "Intermediate", "Build", platformName, configuration.ToString(), targetName);
+        return target?.ExternalProject is { } external
             ? Path.Combine(ProjectDirectory, "Intermediate", "Build", platformName, configuration.ToString(), "External", external, targetName)
             : Path.Combine(ProjectDirectory, "Intermediate", "Build", platformName, configuration.ToString(), targetName);
+    }
+
+    /// <summary>Binaries/&lt;platform&gt;/&lt;configuration&gt; a target's products go to (a shared external target: its project's).</summary>
+    public string BinariesDirectory(string platformName, TargetConfiguration configuration, BuildTarget target) =>
+        Path.Combine(TargetRoot(target), "Binaries", platformName, configuration.ToString());
 
     /// <summary>Build directory of a built target without loading rules: its own, or under External/&lt;project&gt;.</summary>
     public static string ExistingBuildDirectory(string projectDirectory, string platformName, TargetConfiguration configuration, string targetName)
@@ -270,7 +292,61 @@ public sealed class ProjectModel
         return (Directory.Exists(external) ? Directory.GetDirectories(external).Select(d => Path.Combine(d, targetName)).FirstOrDefault(Directory.Exists) : null) ?? own;
     }
 
+    /// <summary>Rules helper files: C# compiled together with a project's *.Build.cs and *.Target.cs.</summary>
+    public const string RulesHelperSuffix = ".Rules.cs";
+
     private static bool _legacyWarned;
+    private static readonly HashSet<string> _thirdPartyWarned = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// ThirdPartyDependices of rules written for the first Beast BuildTool: each name is a module of
+    /// the project (a vendored library), used as a PublicDependency, as that tool exposed its public
+    /// settings to the module and to everything linked with it. 'beast migrate' rewrites the rules.
+    /// </summary>
+    private static void ApplyLegacyDependencies(Dictionary<string, ModuleRules> modules)
+    {
+#pragma warning disable CS0618 // the obsolete fields are read here on purpose
+        foreach (var module in modules.Values.Where(m => m.ThirdPartyDependices.Count > 0).OrderBy(m => m.ModuleName, StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (string name in module.ThirdPartyDependices.Order(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!modules.ContainsKey(name))
+                    throw new InvalidOperationException($"{module.ModulePath}: ThirdPartyDependices names unknown module '{name}'. Available: {string.Join(", ", modules.Keys.Order(StringComparer.OrdinalIgnoreCase))}");
+                if (name.Equals(module.ModuleName, StringComparison.OrdinalIgnoreCase)) continue;
+                module.PublicDependencies.Add(name);
+            }
+            if (_thirdPartyWarned.Add(module.ModulePath))
+                Log.TraceWarning($"{module.ModulePath}: ThirdPartyDependices is deprecated and is treated as PublicDependencies ({string.Join(", ", module.ThirdPartyDependices)}). Run 'beast migrate' to rewrite it.");
+        }
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
+    /// Rewrites ThirdPartyDependices to PublicDependencies in the project's rules (the same meaning the
+    /// build gives them). Returns the changed files.
+    /// </summary>
+    public static List<string> MigrateThirdPartyDependencies(string directory)
+    {
+        var changed = new List<string>();
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(Path.GetFullPath(directory), "Source"), "*.Build.cs", SearchOption.AllDirectories).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            string text = File.ReadAllText(file);
+            string updated = System.Text.RegularExpressions.Regex.Replace(text, @"\bThirdPartyDependices\b", "PublicDependencies");
+            if (updated == text) continue;
+            // Keep the file's encoding (BOM) and line endings: only the identifier changes.
+            var encoding = DetectEncoding(file);
+            File.WriteAllText(file, updated, encoding);
+            changed.Add(file);
+        }
+        return changed;
+    }
+
+    private static System.Text.Encoding DetectEncoding(string file)
+    {
+        var bytes = File.ReadAllBytes(file);
+        return bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF
+            ? new System.Text.UTF8Encoding(true) : new System.Text.UTF8Encoding(false);
+    }
 
     /// <summary>
     /// Writes Source/&lt;Project&gt;.Target.cs for a legacy project: an Application with every Source
@@ -410,12 +486,15 @@ public sealed class ProjectModel
         var env = GenericProjectBuilder.CreateCppEnvironment(platform, configuration, target.Legacy ? Modules.Values : []);
         var paths = new BuildStepPlan(ProjectDirectory,
             BuildDirectory(platform.PlatformName, configuration, target.Name),
-            Path.Combine(ProjectDirectory, "Binaries", platform.PlatformName, configuration.ToString()), platform.PlatformName, configuration.ToString(), target.Name, []);
+            BinariesDirectory(platform.PlatformName, configuration, target), platform.PlatformName, configuration.ToString(), target.Name, []);
         // Tokens such as {GeneratedDir} of a module built by a dependency target refer to that target.
         BuildStepPlan PathsFor(ModuleRules item) => Provider(target, item) is { } provider
             ? new BuildStepPlan(ProjectDirectory, BuildDirectory(platform.PlatformName, configuration, provider.Name),
-                Path.Combine(ProjectDirectory, "Binaries", platform.PlatformName, configuration.ToString()), platform.PlatformName, configuration.ToString(), provider.Name, [])
+                BinariesDirectory(platform.PlatformName, configuration, provider), platform.PlatformName, configuration.ToString(), provider.Name, [])
             : paths;
+        // A shared external target compiles exactly as its own project does: nothing of the
+        // application (its Beast include copy, its vcpkg/Conan packages) enters the command line.
+        bool shared = SharedProjectOf(target) != null;
         string Resolve(ModuleRules item, string value) => ResolvePath(item, PathsFor(item).Expand(item, value));
         env.CppVersion = target.Rules.CppVersion;
         env.StaticRuntime = target.Rules.StaticRuntime;
@@ -427,9 +506,16 @@ public sealed class ProjectModel
         env.PreprocessorDefinitions.AddRange(target.Rules.Definitions);
         // Source/ of the module's own project (an external project's for its modules), then of the
         // projects of the modules it sees (below).
-        env.IncludePaths.Add(Path.Combine(module.ProjectDirectory.Length > 0 ? module.ProjectDirectory : ProjectDirectory, "Source"));
-        env.IncludePaths.Add(BeastIncludeDirectory(ProjectDirectory));
-        PackageManagers.ApplyCompile(this, platform, configuration, env);
+        string ProjectOf(ModuleRules item) => item.ProjectDirectory.Length > 0 ? item.ProjectDirectory : ProjectDirectory;
+        // Source/ and the includeRoots of a project, as one unit: whoever sees the project's Source/ sees its roots too.
+        void AddProjectRoots(ModuleRules item)
+        {
+            env.IncludePaths.Add(Path.Combine(ProjectOf(item), "Source"));
+            env.IncludePaths.AddRange(ProjectSettings.For(ProjectOf(item)).IncludeRoots);
+        }
+        AddProjectRoots(module);
+        env.IncludePaths.Add(BeastIncludeDirectory(TargetRoot(target)));
+        if (!shared) PackageManagers.ApplyCompile(this, platform, configuration, env);
         if (target.Legacy)
         {
             foreach (var item in Modules.Values.Where(m => m.BuildSteps.Count > 0)) env.IncludePaths.Add(paths.GeneratedDirectory(item));
@@ -439,7 +525,7 @@ public sealed class ProjectModel
         foreach (string dep in module.PublicDependencies.Concat(module.PrivateDependencies)) visible.AddRange(PublicClosure(Modules[dep]));
         foreach (var item in visible.Distinct())
         {
-            if (item.ProjectDirectory.Length > 0) env.IncludePaths.Add(Path.Combine(item.ProjectDirectory, "Source"));
+            if (item.ProjectDirectory.Length > 0) AddProjectRoots(item);
             env.IncludePaths.AddRange(item.PublicIncludePaths.Select(p => Resolve(item, p)));
             env.ExternalIncludePaths.AddRange(item.PublicSystemIncludePaths.Select(p => Resolve(item, p)));
             if (item.BuildSteps.Count > 0)

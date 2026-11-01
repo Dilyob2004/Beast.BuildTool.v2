@@ -139,6 +139,46 @@ public sealed class AndroidGlue : ModuleRules
 // или PrivateDependencies.Add("AndroidGlue") в модуле, который его использует
 ```
 
+### Раскладка проекта, опции сборки и общие файлы правил
+
+Три ключа `Config/BuildConfig.json` описывают раскладку **своего** проекта (читаются у каждого проекта,
+в том числе у внешнего):
+
+```json
+{
+  "thirdPartyDirectory": "Source/ThirdParty",
+  "includeRoots": ["Source/Runtime", "Source/Editor"],
+  "options": { "RHI": "Vulkan" }
+}
+```
+
+- `thirdPartyDirectory` — что возвращает `info.ThirdPartyDirectory`. Без ключа — `ThirdParty`, а если его нет
+  и есть `Source/ThirdParty`, то он. Внутри правил внешнего проекта — каталог этого проекта.
+- `includeRoots` — базовые include-каталоги кроме `Source/`: с ними `#include "Core/Public/Core.h"` работает
+  для модулей в `Source/Runtime/Core`. Видны модулям проекта и всем, кто видит его модули (как `Source/`).
+  Несуществующий каталог — ошибка.
+- `options` — значения для правил; `--option NAME=VALUE` (можно несколько раз) переопределяет их в
+  `build`, `graph`, `generate` (тогда и сборка из IDE получает это значение). В правилах:
+
+```csharp
+string rhi = info.GetOption("RHI", "Vulkan");      // строка, значение по умолчанию
+bool tracing = info.GetBoolOption("Tracing");      // true/1/yes/on, false/0/no/off; другое — ошибка
+if (info.HasOption("Profile")) Definitions.Add("WITH_PROFILE=1");
+```
+
+Внешние проекты видят опции приложения. Изменённая опция пересобирает ровно то, что изменили правила.
+
+Общий C#-код правил (пути, имена опций, функции) — в файлах `*.Rules.cs` где угодно в `Source/`: они
+компилируются вместе с `*.Build.cs` и `*.Target.cs` своего проекта и не объявляют модулей или целей.
+
+```csharp
+// Source/Rules/EnginePaths.Rules.cs
+public static class EnginePaths
+{
+    public static string Vendor(ModulesInfo info, string name) => System.IO.Path.Combine(info.ThirdPartyDirectory, name);
+}
+```
+
 ### Конфигурации
 
 | | Debug | Development | Release |
@@ -306,8 +346,32 @@ PrivateDependencies.Add("UI");   // модуль внешнего проекта
   `generate` добавляет в решение Visual Studio (и проект Xcode) цели внешних проектов, от которых
   зависит приложение, а их исходники — в папку `External\<name>` Solution Explorer; IntelliSense и
   `compile_commands.json` включают исходники внешнего проекта.
-- Настройки сборки (`Config/BuildConfig.json`: компиляторы, Android, vcpkg) берутся из приложения;
-  из конфигурации внешнего проекта читается только его `externalProjects`.
+- Настройки сборки (`Config/BuildConfig.json`: компиляторы, Android, vcpkg, `options`) берутся из
+  приложения; из конфигурации внешнего проекта читаются только его `externalProjects`, `thirdPartyDirectory`
+  и `includeRoots`.
+
+##### Общее дерево сборки (`"build": "shared"`)
+
+По умолчанию (`"build": "local"`) приложение собирает цели внешнего проекта в своём
+`Intermediate/.../External/<name>`. Для движка с редактором и игровыми проектами нужно иначе: одна сборка
+движка на всех.
+
+```json
+"externalProjects": [
+  { "name": "Beast", "path": "../../Engine", "build": "shared" }
+]
+```
+
+- Цели внешнего проекта собираются в **его** `Intermediate/Build/...` и `Binaries/...` — там же, где при
+  `beast build Engine`, под блокировками этого проекта (сборки движка и нескольких игр не мешают друг другу).
+- Команды компиляции и линковки такие же, как при сборке самого проекта (файлы ответов, имена объектов,
+  копия `BeastResources.h` берутся из него; пакеты vcpkg/Conan приложения к ним не применяются). Поэтому
+  после `beast build Engine` сборка игры не делает работы в движке, а после сборки игры `beast build Engine`
+  ничего не делает; редактор и игра используют одну и ту же DLL.
+- Потребитель линкуется с библиотекой из `Binaries` движка; копия DLL/`.so`/`.dylib` (и `.pdb`) кладётся рядом
+  с продуктами потребителя (программа загружает её из своего каталога).
+- Чтобы сборки не перестраивали движок по кругу, используйте те же настройки компилятора (Config) в движке
+  и в играх: они влияют на команды. `clean` приложения общее дерево не трогает.
 
 Совместимость: без `.Target.cs` работает старый режим — необходим `Launch`,
 все модули включаются автоматически, их настройки объединяются. Этот режим устарел,
@@ -315,10 +379,13 @@ PrivateDependencies.Add("UI");   // модуль внешнего проекта
 в котором все модули — корневые (поведение как раньше, но уже явная модель). После этого
 объявите `PublicDependencies`/`PrivateDependencies` там, где компиляция сообщит о недостающих
 заголовках, и перенесите экспортируемые определения из `Definitions` в `PublicDefinitions`.
-Поля `DirectoryDependencies` и `ThirdPartyDependices` помечены `[Obsolete]`: Beast их никогда не
-использовал; вместо них — зависимости модулей, `InputLibraries`, `VcpkgLibraries` или Conan.
+Правила первого Beast BuildTool: `ThirdPartyDependices.Add("glm")` считается `PublicDependencies.Add("glm")`
+(так тот инструмент и передавал настройки библиотеки), с предупреждением; `beast migrate` заменяет поле на
+`PublicDependencies` во всех `*.Build.cs` (кодировка и BOM сохраняются), и в проекте, где уже есть цели.
+`DirectoryDependencies` помечено `[Obsolete]` и не используется. При ненайденном заголовке сборка
+подсказывает модуль и зависимость (см. [Граф сборки](graph.md)).
 
-Список команд: `new`, `module`, `generate`, `migrate`, `build`, `run`, `test`, `install`,
+Список команд: `new`, `module`, `generate`, `migrate`, `build`, `graph`, `run`, `test`, `watch`, `install`,
 `package`, `clean`, `help` (`help` печатает все опции).
 Ошибка компиляции больше не останавливает независимые действия: сборка доводит до
 конца всё, что не зависит от упавших действий, и в конце перечисляет все ошибки.

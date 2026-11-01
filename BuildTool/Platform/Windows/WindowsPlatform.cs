@@ -878,9 +878,7 @@ namespace Beast.BuildTool
                 string? responseFile = null;
                 if (useResponseFile)
                 {
-                    string intermediateDir = (GlobalEnvironment.IsProjectBuild && !string.IsNullOrEmpty(GlobalEnvironment.ProjectPath))
-                        ? Path.Combine(GlobalEnvironment.ProjectPath, "Intermediate", "Build", "Link")
-                        : Path.Combine(GlobalEnvironment.IntermediatePath, "Build", "Link");
+                    string intermediateDir = Path.Combine(GlobalEnvironment.PlanningIntermediatePath, "Build", "Link");
                     if (!Directory.Exists(intermediateDir))
                         Directory.CreateDirectory(intermediateDir);
                     // Different configurations/targets must not overwrite each other's link arguments.

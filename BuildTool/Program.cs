@@ -15,6 +15,7 @@ internal static class Program
             var commandLine = new CommandLine(args);
             foreach (string option in commandLine.UnknownOptions)
                 Log.TraceWarning($"Unknown option '--{option}' is ignored. Run 'help' for the list of options.");
+            BuildOptions.SetOverrides(commandLine.GetArguments("option"));
             string command = commandLine.Positionals.FirstOrDefault()?.ToLowerInvariant() ?? "";
             return command switch
             {
@@ -27,6 +28,7 @@ internal static class Program
                 "clean" => Clean(commandLine),
                 "test" => await Test(commandLine),
                 "watch" => await Watch(commandLine),
+                "graph" => await Graph(commandLine),
                 "install" => await Install(commandLine, package: false),
                 "package" => await Install(commandLine, package: true),
                 "worker" => await SharedQueueWorker.RunAsync(commandLine),
@@ -75,6 +77,14 @@ internal static class Program
     {
         string? project = ResolveProject(args, 1);
         if (project == null) return Usage("Project path is required.");
+        // Rules of the first Beast BuildTool: ThirdPartyDependices -> PublicDependencies (what the build already assumes).
+        var rewritten = ProjectModel.MigrateThirdPartyDependencies(project);
+        foreach (string changed in rewritten) Log.TraceInfo($"Rewrote ThirdPartyDependices -> PublicDependencies: {changed}");
+        if (Directory.EnumerateFiles(Path.Combine(project, "Source"), "*.Target.cs", SearchOption.AllDirectories).Any())
+        {
+            if (rewritten.Count == 0) Log.TraceInfo("The project already has a *.Target.cs and no ThirdPartyDependices; nothing to migrate.");
+            return 0;
+        }
         string file = ProjectModel.Migrate(project);
         Log.TraceInfo($"Created {file}. Build it and add module dependencies where compilation reports missing headers or definitions.");
         return 0;
@@ -82,6 +92,22 @@ internal static class Program
 
     private static int Generate(CommandLine args)
     {
+        if (GetOptionalArgument(args, "workspace") is { } workspace)
+        {
+            // generate --workspace Beast.sln Engine Projects/Game ...: each project's own files, then one solution.
+            var projects = args.Positionals.Skip(1).Select(Path.GetFullPath).ToList();
+            if (projects.Count == 0) return Usage("generate --workspace <file.sln> needs the project paths.");
+            foreach (string item in projects)
+                if (!Directory.Exists(Path.Combine(item, "Source"))) return Usage($"Not a Beast project (no Source directory): {item}");
+            if (!HostPlatform.IsWindows)
+            {
+                Log.TraceInfo("Visual Studio workspaces are generated on Windows hosts only.");
+                return 0;
+            }
+            var solutions = projects.Select(p => SolutionGenerator.Generate(p, new DirectoryInfo(p).Name)).ToList();
+            Log.TraceInfo("Generated " + SolutionGenerator.WriteWorkspace(workspace, solutions));
+            return 0;
+        }
         string? project = ResolveProject(args, 1);
         if (project == null) return Usage("Project path is required.");
         foreach (string file in IdeGenerator.Generate(project)) Log.TraceInfo("Generated " + file);
@@ -97,6 +123,26 @@ internal static class Program
         string? runTarget = args.HasFlag("run") ? ResolveRunnable(project, platforms[0], configuration, targetName) : null;
         await new GenericProjectBuilder().BuildAsync(project, new DirectoryInfo(project).Name, platforms, configuration, targetName);
         return runTarget == null ? 0 : await Launch(args, project, platforms[0], configuration, runTarget);
+    }
+
+    /// <summary>graph: the build graph build would run (JSON or DOT), without running an action.</summary>
+    private static async Task<int> Graph(CommandLine args)
+    {
+        // stdout carries the graph unless --output names a file.
+        if (GetOptionalArgument(args, "output") == null) Log.UseStandardError = true;
+        var (project, platforms, configuration, targets) = Prepare(args, null);
+        if (targets.Count > 1) throw new ArgumentException("graph takes one --target.");
+        string format = (GetOptionalArgument(args, "format") ?? "json").ToLowerInvariant();
+        string text = await new GenericProjectBuilder().DescribeGraphAsync(project, new DirectoryInfo(project).Name, platforms, configuration, targets.FirstOrDefault(), format);
+        if (GetOptionalArgument(args, "output") is { } output)
+        {
+            string path = Path.GetFullPath(output);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+            Log.TraceInfo($"Wrote the build graph to {path}");
+        }
+        else Console.Out.Write(text);
+        return 0;
     }
 
     /// <summary>run: builds (unless --no-build) and starts an application: Windows EXE or Android APK.</summary>
@@ -277,12 +323,15 @@ Beast BuildTool
   beast new <Name> [--path <directory>] [--template <directory>]   (custom template: files copied, {{ProjectName}} replaced)
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
+  beast generate --workspace <file.sln> <project-path> [<project-path> ...]   (one Visual Studio solution for several projects)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
-  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--stop-on-error] [--run --avd <name> --wait --headless]
+  beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--option NAME=VALUE ...] [--stop-on-error] [--run --avd <name> --wait --headless]
   beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait] [--headless]
   beast test [project-path] [--target <a,b>] [--platform Windows|Linux|Mac|IOSSimulator|Android] [--device <serial>] [--config ...]   (builds and runs TargetRules.IsTest applications)
   beast install [project-path] --prefix <directory> [--target <a,b>] [--platform ...] [--config Release] [--symbols]
   beast package [project-path] [--output <file.zip>] [--target <a,b>] [--platform ...] [--config Release] [--symbols] [--dmg [--notarize]]
+  beast graph [project-path] [--target <name>] [--platform ...] [--config ...] [--format json|dot] [--output <file>] [--option NAME=VALUE]
+        (the action graph build would run: targets, dependency edges, critical path; nothing is built)
   beast watch [project-path] [--target <name>] [--platform ...] [--config ...] [--on-success "<command>"] [--versioned] [--device <serial>] [--debounce <ms>]
         (rebuilds on changes in Source/ and Config/ of the project and its external projects; Ctrl+C stops)
   beast clean [project-path] [--target <name>]   (without --target: the whole Intermediate/Build)

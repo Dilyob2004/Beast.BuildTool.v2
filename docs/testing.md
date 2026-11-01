@@ -24,6 +24,10 @@ bash Tests/Unix.sh                # настоящие сборки: цели, .
                                   # .app, universal и .dmg (macOS), iOS Simulator (macOS с Xcode),
                                   # санитайзеры, GCC, arm64 через qemu и import std (Linux), шаблоны new
 bash Tests/Unix.sh --android      # + APK этого проекта (ANDROID_HOME, NDK, JAVA_HOME)
+bash Tests/Engine.sh              # раскладка движка с играми: правила первого Beast BuildTool, includeRoots,
+                                  # thirdPartyDirectory, --option, *.Rules.cs, один граф на сборку и beast graph,
+                                  # сгенерированные файлы между целями, подсказки зависимостей, target:<Имя>,
+                                  # внешний проект в общем дереве ("build": "shared")
 bash Tests/AndroidDevice.sh       # на запущенном эмуляторе/устройстве: run шаблона (logcat) и test
 dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
 ```
@@ -112,9 +116,9 @@ Linux (с APK, собранным на Linux) и macOS.
 | Задача | Что проверяет |
 | --- | --- |
 | `windows` | сборка инструмента, BuildGraphTests, ModelTests, `Smoke`, `Targets`, `CompilationModes`, `Features` (MSVC, clang-cl, ASan, модули, `import std`, CMake) |
-| `linux` | `Unix.sh --android`: Clang, GCC, arm64 через qemu, `import std`, CMake/pkg-config, APK на NDK |
+| `linux` | `Unix.sh --android`: Clang, GCC, arm64 через qemu, `import std`, CMake/pkg-config, APK на NDK; `Engine.sh` |
 | `android` | эмулятор x86_64 (KVM): `AndroidDevice.sh` — установка и запуск шаблона, тесты на устройстве |
-| `macos` | `Unix.sh`: Apple clang, `.app`, universal, `.dmg`, iOS Simulator |
+| `macos` | `Unix.sh`: Apple clang, `.app`, universal, `.dmg`, iOS Simulator; `Engine.sh` |
 
 При падении скрипты пишут причину и конец лога в аннотации GitHub (видны на странице прогона), в
 конце — сводку (`::notice::`: сколько групп прошло и что пропущено). Папка `Tests/Generated` с логами
