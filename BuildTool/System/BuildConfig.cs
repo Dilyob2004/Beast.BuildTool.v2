@@ -21,19 +21,6 @@ public sealed class BuildConfig
     [JsonPropertyName("externalProjects")]
     public List<ExternalProjectConfig> ExternalProjects { get; set; } = [];
 
-    /// <summary>Build options for the rules (ModulesInfo.GetOption), e.g. { "RHI": "Vulkan" }; --option NAME=VALUE overrides.</summary>
-    [JsonPropertyName("options")]
-    public Dictionary<string, string> Options { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Vendored libraries (ModulesInfo.ThirdPartyDirectory), relative to the project root; read per project (ProjectSettings).</summary>
-    [JsonPropertyName("thirdPartyDirectory")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ThirdPartyDirectory { get; set; }
-
-    /// <summary>Base include directories besides Source/, relative to the project root; read per project (ProjectSettings).</summary>
-    [JsonPropertyName("includeRoots")]
-    public List<string> IncludeRoots { get; set; } = [];
-
     [JsonPropertyName("defaultPlatform")]
     public string DefaultPlatform { get; set; } = "Windows";
 
@@ -77,14 +64,6 @@ public sealed class ExternalProjectConfig
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("path")] public string Path { get; set; } = "";
-    /// <summary>
-    /// "local" (default): the application builds the external targets into its own
-    /// Intermediate/.../External/&lt;name&gt; and Binaries. "shared": they build in the external
-    /// project's own Intermediate and Binaries, the tree the external project uses for itself, so
-    /// every application and the project itself use one build (an engine and its editor shared by
-    /// game projects); shared libraries are copied beside the application's products.
-    /// </summary>
-    [JsonPropertyName("build")] public string Build { get; set; } = "local";
 }
 
 /// <summary>iOS devices and the iOS Simulator (Xcode).</summary>

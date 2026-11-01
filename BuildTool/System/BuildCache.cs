@@ -83,11 +83,8 @@ public sealed class BuildCacheSession
             .Select(n => n + "=" + JsonSerializer.Serialize(Environment.GetEnvironmentVariable(n))));
         if (action.Type == CommandType.Custom)
             environment = string.Join('\n', Environment.GetEnvironmentVariables().Cast<System.Collections.DictionaryEntry>()
-                // Then by exact name: Linux/macOS may have names differing only in case (HTTPS_PROXY and
-                // https_proxy), whose relative order would otherwise follow the hash table and change between runs.
-                .OrderBy(p => p.Key.ToString(), StringComparer.OrdinalIgnoreCase).ThenBy(p => p.Key.ToString(), StringComparer.Ordinal)
-                .Select(p => p.Key + "=" + JsonSerializer.Serialize(p.Value)));
-        if (action.EnvironmentOverrides != null) environment += "\noverrides=" + JsonSerializer.Serialize(action.EnvironmentOverrides.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase).ThenBy(p => p.Key, StringComparer.Ordinal));
+                .OrderBy(p => p.Key.ToString(), StringComparer.OrdinalIgnoreCase).Select(p => p.Key + "=" + JsonSerializer.Serialize(p.Value)));
+        if (action.EnvironmentOverrides != null) environment += "\noverrides=" + JsonSerializer.Serialize(action.EnvironmentOverrides.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase));
         return HashText("BeastAction-v3\n" + (action.LocalOnly ? "machine=" + Environment.MachineName + "\n" : "") + Normalize(action.CompilerPath) + "\n" + tool + "\n" + action.Arguments + "\n" +
             (action.WorkingDirectory ?? GlobalEnvironment.WorkingDirectory) + "\n" + (action.ArgumentList == null ? "" : JsonSerializer.Serialize(action.ArgumentList) + "\n") +
             "VSLANG=1033\n" + environment + "\n" + string.Join('\n', action.DeclaredInputs.Select(Normalize).Order(StringComparer.Ordinal)));

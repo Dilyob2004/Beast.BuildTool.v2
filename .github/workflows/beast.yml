@@ -81,8 +81,6 @@ jobs:
       - name: Linux and Android (APK built on Linux)
         # The runner image provides ANDROID_HOME and ANDROID_NDK_LATEST_HOME.
         run: bash Tests/Unix.sh --android
-      - name: Engine integration (build graph, shared external project, tools, options)
-        run: bash Tests/Engine.sh
       - name: Test logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -359,8 +357,6 @@ jobs:
         run: dotnet run --project Tests/ModelTests/ModelTests.csproj -c Release
       - name: macOS (Apple clang)
         run: bash Tests/Unix.sh
-      - name: Engine integration (build graph, shared external project, tools, options)
-        run: bash Tests/Engine.sh
       - name: Test logs
         if: failure()
         uses: actions/upload-artifact@v4

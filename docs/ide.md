@@ -13,17 +13,6 @@ NDK. Android-конфигурации собирают все ABI, их IntelliS
 Android-приложения выполняет `run --no-build --wait` (установка и запуск на устройстве/эмуляторе).
 Файлы чужой платформы (`Private/Android/...` в Windows-конфигурации) помечены `ExcludedFromBuild`.
 
-Несколько проектов в одном решении (движок и игры):
-
-```powershell
-beast generate --workspace Beast.sln Engine Projects/TestGame Projects/Shooter
-```
-
-Каждый проект получает свои файлы как обычно, а `Beast.sln` содержит их проекты Visual Studio в папках по
-проектам. Цель внешнего проекта входит один раз: из своего проекта, если он в списке, иначе из первого
-использующего. Сборка каждого проекта VS по-прежнему идёт через его проект Beast. `--option NAME=VALUE`,
-переданный `generate`, попадает в команды сборки решения.
-
 IntelliSense модулей C++20: интерфейсы помечены `CompileAsCppModule`, внутренние разделы —
 `CompileAsCppModuleInternalPartition` (см. [Модули C++20](cpp-modules.md)).
 
