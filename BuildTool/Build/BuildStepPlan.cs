@@ -55,8 +55,21 @@ public sealed class BuildStepPlan
         if (Directory.Exists(path)) throw new InvalidOperationException($"Expected a file output, found directory: {path}");
     }
 
+    /// <summary>Resolves "target:&lt;Name&gt;" executables: the program of an Application target built in the same graph.</summary>
+    public Func<string, string>? ToolPath { get; set; }
+
+    public static bool IsToolReference(string executable) => executable.StartsWith("target:", StringComparison.OrdinalIgnoreCase);
+    public static string ToolName(string executable)
+    {
+        string name = executable["target:".Length..].Trim();
+        if (name.Length == 0) throw new InvalidOperationException("BuildStep.Executable 'target:' needs a target name, e.g. target:PakTool.");
+        return name;
+    }
+
     private string Executable(ModuleRules module, string value)
     {
+        if (IsToolReference(value.Trim()))
+            return ToolPath?.Invoke(ToolName(value.Trim())) ?? throw new InvalidOperationException($"{module.ModuleName}: build step tools (target:...) are not available here.");
         value = Expand(module, value);
         if (string.IsNullOrWhiteSpace(value)) throw new InvalidOperationException($"{module.ModuleName}: BuildStep.Executable is required.");
         if (Path.GetExtension(value).ToLowerInvariant() is ".bat" or ".cmd" or ".ps1")

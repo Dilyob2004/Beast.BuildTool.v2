@@ -15,7 +15,7 @@ public sealed class GenericProjectBuilder
     /// </summary>
     public async Task BuildAsync(string projectPath, string projectName, IReadOnlyList<Platform> platforms, TargetConfiguration configuration, string? targetName = null)
     {
-        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks);
+        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks, out var tools);
         using var _ = locks;
         // One build graph for everything this invocation builds: the target, its dependency targets
         // and every platform/ABI. Targets are planned dependencies first (their modules' rules are
@@ -24,7 +24,7 @@ public sealed class GenericProjectBuilder
         var first = plans[0];
         var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs,
             Path.Combine(first.Model.BuildDirectory(first.Platform.PlatformName, configuration, first.Target.Name), "BuildGraph.json"));
-        var planned = await PlanAsync(executor, plans, projectPath, projectName, configuration);
+        var planned = await PlanAsync(executor, plans, tools, projectPath, projectName, configuration);
         foreach (var item in planned) executor.AddTrace(item.TracePath, item.Actions);
         try { await executor.ExecuteAsync(); }
         catch (InvalidOperationException) { ReportIncludeHints(planned); throw; }
@@ -56,10 +56,10 @@ public sealed class GenericProjectBuilder
     public async Task<string> DescribeGraphAsync(string projectPath, string projectName, IReadOnlyList<Platform> platforms, TargetConfiguration configuration, string? targetName, string format)
     {
         if (format is not ("json" or "dot")) throw new ArgumentException($"Unknown graph format '{format}'. Use json or dot.");
-        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks);
+        var plans = LoadPlans(projectPath, platforms, configuration, targetName, out var locks, out var tools);
         using var _ = locks;
         var executor = new CommandExecutor(BuildConfigManager.Config.MaxParallelJobs);
-        var planned = await PlanAsync(executor, plans, projectPath, projectName, configuration);
+        var planned = await PlanAsync(executor, plans, tools, projectPath, projectName, configuration);
         return BuildGraphDescription.Describe(executor.PlanGraph(), planned.Select(p => (p.Platform.PlatformName + "/" + p.Target.Name, p.Actions)).ToList(), format);
     }
 
@@ -68,18 +68,53 @@ public sealed class GenericProjectBuilder
         public void Dispose() { foreach (var item in Enumerable.Reverse(held)) item.Dispose(); }
     }
 
+    /// <summary>Build steps of a target and its dependency targets that run a program of the project.</summary>
+    private static IEnumerable<string> ToolNames(ProjectModel model, BuildTarget target) =>
+        model.TargetDependencies(target).Append(target).SelectMany(model.OwnModules).SelectMany(m => m.BuildSteps)
+            .Select(s => s.Executable.Trim()).Where(BuildStepPlan.IsToolReference).Select(BuildStepPlan.ToolName).Distinct(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Programs built for this platform run on this machine (Windows, Linux, macOS of the host's architecture).</summary>
+    private static bool RunsOnHost(Platform platform) => platform.Architecture == HostPlatform.Architecture &&
+        (platform.Type == PlatformType.Windows && HostPlatform.IsWindows || platform.Type == PlatformType.Linux && HostPlatform.IsLinux || platform is MacPlatform && HostPlatform.IsMacOS);
+
     private static List<(Platform Platform, ProjectModel Model, BuildTarget Target)> LoadPlans(string projectPath, IReadOnlyList<Platform> platforms,
-        TargetConfiguration configuration, string? targetName, out IDisposable locks)
+        TargetConfiguration configuration, string? targetName, out IDisposable locks, out List<(Platform Platform, ProjectModel Model, BuildTarget Target)> tools)
     {
         var plans = new List<(Platform Platform, ProjectModel Model, BuildTarget Target)>();
         // The project lock covers rules compilation only; targets and configurations build in parallel.
+        tools = [];
         using (ProjectBuildLock.AcquireAsync(projectPath).GetAwaiter().GetResult())
+        {
             foreach (var platform in platforms)
             {
                 // Rules are evaluated per platform/architecture (ModulesInfo.Architecture differs by ABI).
                 var model = ProjectModel.Load(projectPath, platform, configuration);
                 plans.Add((platform, model, model.SelectTarget(targetName)));
             }
+            // Programs of the project run by build steps (Executable = "target:<Name>"), built for this
+            // machine in the same graph, before the steps that run them.
+            var found = tools;
+            (Platform Platform, ProjectModel Model)? host = null;
+            void AddTools(Platform platform, ProjectModel model, BuildTarget consumer, List<string> stack)
+            {
+                foreach (string name in ToolNames(model, consumer))
+                {
+                    var (toolPlatform, toolModel) = RunsOnHost(platform) ? (platform, model)
+                        : host ??= (PlatformFactory.CreateSingle(PlatformFactory.HostDefault, null) is var hostPlatform
+                            ? (hostPlatform, ProjectModel.Load(projectPath, hostPlatform, configuration)) : default);
+                    var tool = toolModel.SelectTarget(name);
+                    if (tool.Rules.Type != TargetType.Application || tool.Rules.IsTest)
+                        throw new InvalidOperationException($"Build step tool 'target:{name}' must be an Application target (it is a {(tool.Rules.IsTest ? "test" : tool.Rules.Type.ToString())}).");
+                    string key = toolPlatform.PlatformName + "/" + tool.Name;
+                    if (stack.Contains(key, StringComparer.OrdinalIgnoreCase) || (toolModel == model && model.TargetDependencies(consumer).Append(consumer).Contains(tool)))
+                        throw new InvalidOperationException($"Build step tool cycle: {string.Join(" -> ", stack.Append(key))} (a tool cannot be built by a target that needs it).");
+                    if (found.Any(t => t.Platform.PlatformName == toolPlatform.PlatformName && t.Target.Name.Equals(tool.Name, StringComparison.OrdinalIgnoreCase))) continue;
+                    AddTools(toolPlatform, toolModel, tool, [.. stack, key]);
+                    found.Add((toolPlatform, toolModel, tool));
+                }
+            }
+            foreach (var (platform, model, target) in plans) AddTools(platform, model, target, [platform.PlatformName + "/" + target.Name]);
+        }
         // An Android application needs a JDK and the SDK for Gradle: stop now, before compiling, when they are missing.
         if (plans.Any(p => p.Platform is AndroidPlatform && p.Target.Rules.Type == TargetType.Application && !p.Target.Rules.IsTest))
         {
@@ -89,7 +124,7 @@ public sealed class GenericProjectBuilder
         // Targets lock in the tree they build into: a shared external target in its own project, where
         // that project's own builds and other applications take the same lock.
         var lockNames = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase) { [Path.GetFullPath(projectPath)] = [] };
-        foreach (var (platform, model, target) in plans)
+        foreach (var (platform, model, target) in tools.Concat(plans))
         {
             foreach (var item in model.TargetDependencies(target).Append(target))
             {
@@ -118,16 +153,26 @@ public sealed class GenericProjectBuilder
     /// without running them (build, and 'beast graph' to inspect the plan).
     /// </summary>
     internal static async Task<List<PlannedTarget>> PlanAsync(CommandExecutor executor, IReadOnlyList<(Platform Platform, ProjectModel Model, BuildTarget Target)> plans,
-        string projectPath, string projectName, TargetConfiguration configuration)
+        IReadOnlyList<(Platform Platform, ProjectModel Model, BuildTarget Target)> tools, string projectPath, string projectName, TargetConfiguration configuration)
     {
         var planned = new List<PlannedTarget>();
-        foreach (var (platform, model, target) in plans)
+        var byModel = new Dictionary<ProjectModel, Dictionary<BuildTarget, PlannedTarget>>();
+        var prepared = new HashSet<ProjectModel>();
+        // Executable of a tool for steps compiled on 'platform': its host build (tools are planned first).
+        string ToolPath(Platform platform, string name)
         {
-            await PackageManagers.PrepareAsync(model, platform, configuration);
-            var byTarget = new Dictionary<BuildTarget, PlannedTarget>();
+            var tool = tools.FirstOrDefault(t => t.Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && (RunsOnHost(platform) ? t.Platform == platform : !RunsOnHost(platform) && RunsOnHost(t.Platform)));
+            if (tool.Target == null) throw new InvalidOperationException($"Build step tool 'target:{name}' was not planned.");
+            return tool.Platform.ExecutablePath(tool.Model.BinariesDirectory(tool.Platform.PlatformName, configuration, tool.Target), tool.Target.Name);
+        }
+        foreach (var (platform, model, target) in tools.Concat(plans))
+        {
+            if (prepared.Add(model)) await PackageManagers.PrepareAsync(model, platform, configuration);
+            if (!byModel.TryGetValue(model, out var byTarget)) byModel[model] = byTarget = [];
             foreach (var item in model.TargetDependencies(target).Append(target))
             {
-                var plan = PlanTarget(executor, model, item, projectPath, projectName, platform, configuration, byTarget);
+                if (byTarget.ContainsKey(item)) continue; // a tool's dependency target that the build needs as well
+                var plan = PlanTarget(executor, model, item, projectPath, projectName, platform, configuration, byTarget, name => ToolPath(platform, name));
                 byTarget[item] = plan;
                 planned.Add(plan);
             }
@@ -166,7 +211,7 @@ public sealed class GenericProjectBuilder
     }
 
     private static PlannedTarget PlanTarget(CommandExecutor executor, ProjectModel model, BuildTarget target, string projectPath, string projectName, Platform platform,
-        TargetConfiguration configuration, IReadOnlyDictionary<BuildTarget, PlannedTarget> plannedTargets)
+        TargetConfiguration configuration, IReadOnlyDictionary<BuildTarget, PlannedTarget> plannedTargets, Func<string, string> toolPath)
     {
         int firstAction = executor.Count;
         var moduleOf = new Dictionary<CommandContext, ModuleRules>();
@@ -182,6 +227,7 @@ public sealed class GenericProjectBuilder
         string outputPath = model.BinariesDirectory(platform.PlatformName, configuration, target);
         string BinariesOf(BuildTarget item) => model.BinariesDirectory(platform.PlatformName, configuration, item);
         var steps = new BuildStepPlan(projectPath, buildPath, outputPath, platform.PlatformName, configuration.ToString(), target.Name, modules);
+        steps.ToolPath = toolPath;
         steps.AddGenerators(executor);
         var link = CreateLinkEnvironment(platform, configuration, modules);
         link.LinkAsConsoleProgram = target.Rules.ConsoleApplication;

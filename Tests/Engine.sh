@@ -302,6 +302,65 @@ rm -rf "$project/Source/Runtime/Renderer"; cp "$work/BeastEngine.Target.cs" "$pr
 beast build "$project" --target Engine --config Debug
 pass 'missing-header hints (providing module, dependency to declare)'
 
+# A build step that runs a program of the project (Executable = "target:PakTool"): the tool target is
+# built for this machine in the same graph, before the step; a change of the tool reruns the step;
+# a tool needed by its own target is a cycle.
+put Source/Programs/PakTool/PakTool.Build.cs 'using Beast.BuildTool;
+public class PakTool : ModuleRules { public PakTool(ModulesInfo Info) { } }'
+put Source/Programs/PakTool/Main.cpp '#include <cstdio>
+#include <fstream>
+#include <sstream>
+int main(int argc, char** argv)
+{
+    if (argc != 3) return 2;
+    std::ifstream in(argv[1]); std::stringstream text; text << in.rdbuf();
+    std::ofstream out(argv[2]); out << "PAK1:" << text.str();
+    return out ? 0 : 1;
+}'
+put Source/PakTool.Target.cs 'using Beast.BuildTool;
+public sealed class PakToolTarget : TargetRules { public PakToolTarget(ModulesInfo info) { Modules.Add("PakTool"); } }'
+put Source/Runtime/Launch/Content/scene.txt 'level-one'
+put Source/Runtime/Launch/Launch.Build.cs 'using Beast.BuildTool;
+public class Launch : ModuleRules
+{
+    public Launch(ModulesInfo Info)
+    {
+        PrivateDependencies.Add("Core"); PublicDependencies.Add("mathlib");
+        var pak = new BuildStep { Name = "Pak", Executable = "target:PakTool", AffectsCompilation = false };
+        pak.Arguments.AddRange(new[] { "{ModuleDir}/Content/scene.txt", "{GeneratedDir}/content.pak" });
+        pak.Inputs.Add("Content/scene.txt");
+        pak.Outputs.Add("content.pak");
+        BuildSteps.Add(pak);
+        RuntimeDependencies.Add("{GeneratedDir}/content.pak", "content.pak");
+    }
+}'
+"${tool[@]}" graph "$project" --target Engine --config Debug >"$graph_json" 2>"$work/last.log" || { cat "$work/last.log"; exit 1; }
+python3 - "$graph_json" <<'EOF2'
+import json, sys
+g = json.load(open(sys.argv[1]))
+link = [a for a in g["actions"] if a["description"].startswith("Linking PakTool")]
+step = [a for a in g["actions"] if a["description"].startswith("Generating Launch/Pak")]
+assert len(link) == 1 and len(step) == 1, [a["description"] for a in g["actions"]]
+assert link[0]["id"] in step[0]["dependencies"], "the step does not wait for its tool"
+assert any(t.endswith("/PakTool") for t in g["targets"])
+EOF2
+check '[[ $? -eq 0 ]]' 'tool edge'
+rm -rf "$project/Intermediate" "$project/Binaries"
+beast build "$project" --target Engine --config Debug
+check '[[ "$(cat "$(bin Debug/content.pak)")" == "PAK1:level-one" ]]' 'tool output'
+beast build "$project" --target Engine --config Debug
+check 'grep -q "Done: 0 executed (0 remote), 0 cache hits" "$work/last.log"' 'no-op build with a tool step did work'
+sed -i.bak 's/PAK1:/PAK2:/' "$project/Source/Programs/PakTool/Main.cpp" && rm -f "$project/Source/Programs/PakTool/Main.cpp.bak"
+beast build "$project" --target Engine --config Debug
+check '[[ "$(cat "$(bin Debug/content.pak)")" == "PAK2:level-one" ]] && grep -q "Generating Launch/Pak" "$work/last.log"' 'changed tool did not rerun its step'
+cp "$project/Source/Programs/PakTool/PakTool.Build.cs" "$work/PakTool.Build.cs"
+put Source/Programs/PakTool/PakTool.Build.cs 'using Beast.BuildTool;
+public class PakTool : ModuleRules { public PakTool(ModulesInfo Info) { var s = new BuildStep { Name = "Self", Executable = "target:PakTool" }; s.Outputs.Add("x.txt"); BuildSteps.Add(s); } }'
+beast_fails build "$project" --target Engine --config Debug
+check 'grep -q "Build step tool cycle" "$work/last.log"' 'tool cycle accepted'
+cp "$work/PakTool.Build.cs" "$project/Source/Programs/PakTool/PakTool.Build.cs"
+pass 'build steps running a tool target (target:Name)'
+
 # ---------------------------------------------------------------------------------------------
 # A game project that uses the engine with "build": "shared": the engine's targets build in the
 # engine's own Intermediate/Binaries (the tree the engine and its editor use), so a game build after
