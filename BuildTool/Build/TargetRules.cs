@@ -96,7 +96,8 @@ public sealed class ProjectModel
         var targets = new List<BuildTarget>();
         var allFiles = new List<string>();
         static List<string> RulesFilesOf(string project) => Directory.EnumerateFiles(Path.Combine(project, "Source"), "*.cs", SearchOption.AllDirectories)
-            .Where(f => f.EndsWith(".Build.cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase))
+            .Where(f => f.EndsWith(".Build.cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase)
+                || f.EndsWith(RulesHelperSuffix, StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
         string Owner(string? external) => external == null ? "this project" : $"external project '{external}'";
 
@@ -105,7 +106,8 @@ public sealed class ProjectModel
             if (files.Count == 0) return;
             var assembly = new Assembler(files, rulesCache).Build();
             var info = new ModulesInfo(configuration, platform, external == null ? null : project, external);
-            foreach (string file in files)
+            // *.Rules.cs: shared helpers (paths, option names, functions) compiled with the rules; they declare no module or target.
+            foreach (string file in files.Where(f => !f.EndsWith(RulesHelperSuffix, StringComparison.OrdinalIgnoreCase)))
             {
                 bool isTarget = file.EndsWith(".Target.cs", StringComparison.OrdinalIgnoreCase);
                 string name = Path.GetFileName(file)[..^(isTarget ? ".Target.cs".Length : ".Build.cs".Length)];
@@ -162,6 +164,7 @@ public sealed class ProjectModel
                 Log.TraceWarning("This project has no *.Target.cs (legacy mode: all modules, merged settings). Legacy mode is deprecated; run 'beast migrate' to create a target.");
             }
         }
+        ApplyLegacyDependencies(modules);
         var model = new ProjectModel(directory, modules, targets, allFiles, platform.Type) { Externals = externals };
         foreach (var target in targets) model.ResolveModules(target);
         foreach (var target in targets) model.ValidateTargetDependencies(target);
@@ -270,7 +273,61 @@ public sealed class ProjectModel
         return (Directory.Exists(external) ? Directory.GetDirectories(external).Select(d => Path.Combine(d, targetName)).FirstOrDefault(Directory.Exists) : null) ?? own;
     }
 
+    /// <summary>Rules helper files: C# compiled together with a project's *.Build.cs and *.Target.cs.</summary>
+    public const string RulesHelperSuffix = ".Rules.cs";
+
     private static bool _legacyWarned;
+    private static readonly HashSet<string> _thirdPartyWarned = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// ThirdPartyDependices of rules written for the first Beast BuildTool: each name is a module of
+    /// the project (a vendored library), used as a PublicDependency, as that tool exposed its public
+    /// settings to the module and to everything linked with it. 'beast migrate' rewrites the rules.
+    /// </summary>
+    private static void ApplyLegacyDependencies(Dictionary<string, ModuleRules> modules)
+    {
+#pragma warning disable CS0618 // the obsolete fields are read here on purpose
+        foreach (var module in modules.Values.Where(m => m.ThirdPartyDependices.Count > 0).OrderBy(m => m.ModuleName, StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (string name in module.ThirdPartyDependices.Order(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!modules.ContainsKey(name))
+                    throw new InvalidOperationException($"{module.ModulePath}: ThirdPartyDependices names unknown module '{name}'. Available: {string.Join(", ", modules.Keys.Order(StringComparer.OrdinalIgnoreCase))}");
+                if (name.Equals(module.ModuleName, StringComparison.OrdinalIgnoreCase)) continue;
+                module.PublicDependencies.Add(name);
+            }
+            if (_thirdPartyWarned.Add(module.ModulePath))
+                Log.TraceWarning($"{module.ModulePath}: ThirdPartyDependices is deprecated and is treated as PublicDependencies ({string.Join(", ", module.ThirdPartyDependices)}). Run 'beast migrate' to rewrite it.");
+        }
+#pragma warning restore CS0618
+    }
+
+    /// <summary>
+    /// Rewrites ThirdPartyDependices to PublicDependencies in the project's rules (the same meaning the
+    /// build gives them). Returns the changed files.
+    /// </summary>
+    public static List<string> MigrateThirdPartyDependencies(string directory)
+    {
+        var changed = new List<string>();
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(Path.GetFullPath(directory), "Source"), "*.Build.cs", SearchOption.AllDirectories).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            string text = File.ReadAllText(file);
+            string updated = System.Text.RegularExpressions.Regex.Replace(text, @"\bThirdPartyDependices\b", "PublicDependencies");
+            if (updated == text) continue;
+            // Keep the file's encoding (BOM) and line endings: only the identifier changes.
+            var encoding = DetectEncoding(file);
+            File.WriteAllText(file, updated, encoding);
+            changed.Add(file);
+        }
+        return changed;
+    }
+
+    private static System.Text.Encoding DetectEncoding(string file)
+    {
+        var bytes = File.ReadAllBytes(file);
+        return bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF
+            ? new System.Text.UTF8Encoding(true) : new System.Text.UTF8Encoding(false);
+    }
 
     /// <summary>
     /// Writes Source/&lt;Project&gt;.Target.cs for a legacy project: an Application with every Source
@@ -427,7 +484,14 @@ public sealed class ProjectModel
         env.PreprocessorDefinitions.AddRange(target.Rules.Definitions);
         // Source/ of the module's own project (an external project's for its modules), then of the
         // projects of the modules it sees (below).
-        env.IncludePaths.Add(Path.Combine(module.ProjectDirectory.Length > 0 ? module.ProjectDirectory : ProjectDirectory, "Source"));
+        string ProjectOf(ModuleRules item) => item.ProjectDirectory.Length > 0 ? item.ProjectDirectory : ProjectDirectory;
+        // Source/ and the includeRoots of a project, as one unit: whoever sees the project's Source/ sees its roots too.
+        void AddProjectRoots(ModuleRules item)
+        {
+            env.IncludePaths.Add(Path.Combine(ProjectOf(item), "Source"));
+            env.IncludePaths.AddRange(ProjectSettings.For(ProjectOf(item)).IncludeRoots);
+        }
+        AddProjectRoots(module);
         env.IncludePaths.Add(BeastIncludeDirectory(ProjectDirectory));
         PackageManagers.ApplyCompile(this, platform, configuration, env);
         if (target.Legacy)
@@ -439,7 +503,7 @@ public sealed class ProjectModel
         foreach (string dep in module.PublicDependencies.Concat(module.PrivateDependencies)) visible.AddRange(PublicClosure(Modules[dep]));
         foreach (var item in visible.Distinct())
         {
-            if (item.ProjectDirectory.Length > 0) env.IncludePaths.Add(Path.Combine(item.ProjectDirectory, "Source"));
+            if (item.ProjectDirectory.Length > 0) AddProjectRoots(item);
             env.IncludePaths.AddRange(item.PublicIncludePaths.Select(p => Resolve(item, p)));
             env.ExternalIncludePaths.AddRange(item.PublicSystemIncludePaths.Select(p => Resolve(item, p)));
             if (item.BuildSteps.Count > 0)

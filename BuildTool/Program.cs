@@ -15,6 +15,7 @@ internal static class Program
             var commandLine = new CommandLine(args);
             foreach (string option in commandLine.UnknownOptions)
                 Log.TraceWarning($"Unknown option '--{option}' is ignored. Run 'help' for the list of options.");
+            BuildOptions.SetOverrides(commandLine.GetArguments("option"));
             string command = commandLine.Positionals.FirstOrDefault()?.ToLowerInvariant() ?? "";
             return command switch
             {
@@ -75,6 +76,14 @@ internal static class Program
     {
         string? project = ResolveProject(args, 1);
         if (project == null) return Usage("Project path is required.");
+        // Rules of the first Beast BuildTool: ThirdPartyDependices -> PublicDependencies (what the build already assumes).
+        var rewritten = ProjectModel.MigrateThirdPartyDependencies(project);
+        foreach (string changed in rewritten) Log.TraceInfo($"Rewrote ThirdPartyDependices -> PublicDependencies: {changed}");
+        if (Directory.EnumerateFiles(Path.Combine(project, "Source"), "*.Target.cs", SearchOption.AllDirectories).Any())
+        {
+            if (rewritten.Count == 0) Log.TraceInfo("The project already has a *.Target.cs and no ThirdPartyDependices; nothing to migrate.");
+            return 0;
+        }
         string file = ProjectModel.Migrate(project);
         Log.TraceInfo($"Created {file}. Build it and add module dependencies where compilation reports missing headers or definitions.");
         return 0;

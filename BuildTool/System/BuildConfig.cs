@@ -21,6 +21,18 @@ public sealed class BuildConfig
     [JsonPropertyName("externalProjects")]
     public List<ExternalProjectConfig> ExternalProjects { get; set; } = [];
 
+    /// <summary>Build options for the rules (ModulesInfo.GetOption), e.g. { "RHI": "Vulkan" }; --option NAME=VALUE overrides.</summary>
+    [JsonPropertyName("options")]
+    public Dictionary<string, string> Options { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Vendored libraries (ModulesInfo.ThirdPartyDirectory), relative to the project root; read per project (ProjectSettings).</summary>
+    [JsonPropertyName("thirdPartyDirectory")]
+    public string? ThirdPartyDirectory { get; set; }
+
+    /// <summary>Base include directories besides Source/, relative to the project root; read per project (ProjectSettings).</summary>
+    [JsonPropertyName("includeRoots")]
+    public List<string> IncludeRoots { get; set; } = [];
+
     [JsonPropertyName("defaultPlatform")]
     public string DefaultPlatform { get; set; } = "Windows";
 
