@@ -41,6 +41,9 @@ EOF
 }
 bin() { echo "$project/Binaries/$platform/$1"; }
 mkdir -p "$work"
+# Names differing only in case (HTTPS_PROXY / https_proxy on CI and proxied hosts): the key of a build
+# step includes the environment, whose order must not change between runs.
+export BEAST_CASE_A=1 beast_case_a=2 BEAST_CASE_B=3 beast_case_b=4 BEAST_CASE_C=5 beast_case_c=6
 
 # ---------------------------------------------------------------------------------------------
 # Engine: rules of the first Beast BuildTool. Modules live under Source/Runtime/<Module> and include
@@ -268,6 +271,78 @@ beast build "$project" --target Engine --config Debug
 run_engine
 check 'grep -q " v8$" "$work/engine.log"' 'generator input change not propagated to the application'
 check 'grep -q "Compiling Main.cpp" "$work/last.log"' 'consumer not recompiled'
+for _ in 1 2 3; do
+    beast build "$project" --target Engine --config Debug
+    check 'grep -q "Done: 0 executed (0 remote), 0 cache hits" "$work/last.log"' 'build step reran without a change (environment order)'
+done
 pass 'generated files across targets (precise inputs, clean build, incremental)'
+
+# ---------------------------------------------------------------------------------------------
+# A game project that uses the engine with "build": "shared": the engine's targets build in the
+# engine's own Intermediate/Binaries (the tree the engine and its editor use), so a game build after
+# an engine build does no engine work and links the same library; the library is copied beside the
+# game's products; the engine's own build after a game build is a no-op (same command lines).
+# ---------------------------------------------------------------------------------------------
+engine="$project"
+game="$work/Projects/TestGame"
+project="$game"
+config 'c["externalProjects"] = [{"name": "Beast", "path": "../../Engine", "build": "shared"}]'
+put Source/TestGame/TestGame.Build.cs 'using Beast.BuildTool;
+public class TestGame : ModuleRules
+{
+    public TestGame(ModulesInfo Info) { PublicIncludePaths.Add("Public"); PrivateDependencies.Add("Core"); }
+}'
+put Source/TestGame/Public/TestGame.h '#pragma once
+TESTGAME_API int GameScore();'
+put Source/TestGame/Private/TestGame.cpp '#include "TestGame.h"
+#include "Core/Public/Core.h"
+int GameScore() { return CoreValue() + 1; }'
+put Source/GameMain/GameMain.Build.cs 'using Beast.BuildTool;
+public class GameMain : ModuleRules
+{
+    public GameMain(ModulesInfo Info) { PrivateDependencies.Add("TestGame"); PrivateDependencies.Add("Core"); }
+}'
+put Source/GameMain/Main.cpp '#include "TestGame.h"
+#include "Core/Public/Core.h"
+#include <cstdio>
+int main() { std::printf("game %d %s\n", GameScore(), CoreRhi()); return 0; }'
+put Source/TestGame.Target.cs 'using Beast.BuildTool;
+public sealed class TestGameTarget : TargetRules
+{
+    public TestGameTarget(ModulesInfo info) { Type = TargetType.SharedLibrary; Modules.Add("TestGame"); TargetDependencies.Add("BeastEngine"); }
+}'
+put Source/GameApp.Target.cs 'using Beast.BuildTool;
+public sealed class GameAppTarget : TargetRules
+{
+    public GameAppTarget(ModulesInfo info) { Modules.Add("GameMain"); TargetDependencies.Add("TestGame"); TargetDependencies.Add("BeastEngine"); }
+}'
+engine_lib="$engine/Binaries/$platform/Debug/libBeastEngine.$so"
+project="$engine"; beast build "$engine" --target Engine --config Debug; project="$game"
+stamp() { stat -c %Y.%s "$1" 2>/dev/null || stat -f %m.%z "$1"; }
+before="$(stamp "$engine_lib")"
+sleep 1
+beast build "$game" --target GameApp --config Debug
+check '[[ "$(stamp "$engine_lib")" == "$before" ]]' 'game build relinked the shared engine library'
+check '! grep -q "Linking libBeastEngine\|Compiling Core.cpp" "$work/last.log"' 'game build did engine work'
+check '[[ ! -d "$game/Intermediate/Build/$platform/Debug/External" && -f "$engine/Intermediate/Build/$platform/Debug/BeastEngine/BuildTrace.json" ]]' 'shared engine target built inside the game'
+check '[[ -f "$game/Binaries/$platform/Debug/libBeastEngine.$so" && ! -f "$game/Binaries/$platform/Debug/libmathlib.$so" ]]' 'engine library not copied beside the game'
+"$game/Binaries/$platform/Debug/GameApp" >"$work/game.log" 2>&1 || { cat "$work/game.log"; echo "FAIL: game run"; exit 1; }
+check 'grep -q "^game 43 vulkan$" "$work/game.log"' 'game with the shared engine'
+# An engine source change: the game build rebuilds the engine in the engine tree; the engine's own
+# build afterwards finds everything up to date.
+sed -i.bak 's/return MathTwice(21);/return MathTwice(21) + 100;/' "$engine/Source/Runtime/Core/Private/Core.cpp" && rm -f "$engine/Source/Runtime/Core/Private/Core.cpp.bak"
+beast build "$game" --target GameApp --config Debug
+check 'grep -q "Compiling Core.cpp" "$work/last.log" && grep -q "Linking libBeastEngine" "$work/last.log"' 'engine change not rebuilt by the game build'
+"$game/Binaries/$platform/Debug/GameApp" >"$work/game.log" 2>&1
+check 'grep -q "^game 143 vulkan$" "$work/game.log"' 'game did not pick up the rebuilt engine library'
+project="$engine"; beast build "$engine" --target BeastEngine --config Debug; project="$game"
+check 'grep -q "Done: 0 executed (0 remote), 0 cache hits" "$work/last.log"' 'engine build after a game build was not a no-op (different command lines)'
+"${tool[@]}" graph "$game" --target GameApp --config Debug >"$graph_json" 2>"$work/last.log"
+check 'python3 -c "import json,sys; g=json.load(open(sys.argv[1])); assert any(t.endswith(\"/BeastEngine\") for t in g[\"targets\"])" "$graph_json"' 'graph of the game lacks the engine target'
+config 'c["externalProjects"][0]["build"] = "copy"'
+beast_fails build "$game" --target GameApp --config Debug
+check 'grep -q "must be \"local\" or \"shared\"" "$work/last.log"' 'bad build mode accepted'
+config 'c["externalProjects"][0]["build"] = "shared"'
+pass 'external project built in its own tree (build: shared)'
 
 echo "All $passed engine integration checks passed ($work)."

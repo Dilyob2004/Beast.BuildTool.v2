@@ -44,6 +44,25 @@ namespace Beast.BuildTool
         public static string TemplatesPath => Path.Combine(AppContext.BaseDirectory, "Templates");
 
         public static string? ProjectPath { get; set; } = null;
+
+        /// <summary>
+        /// Root whose Intermediate holds the response and link files of the target being planned: the
+        /// built project, or a shared external project (so that it compiles with the same command lines
+        /// as when that project builds itself). Planning is sequential; see PlanFor.
+        /// </summary>
+        public static string? PlanningRoot { get; private set; }
+        public static string PlanningIntermediatePath => PlanningRoot != null ? Path.Combine(PlanningRoot, "Intermediate") : IntermediatePath;
+        /// <summary>Root that names of planned files are relative to (object file ids): PlanningRoot or the workspace.</summary>
+        public static string PlanningWorkspacePath => PlanningRoot ?? WorkspacePath;
+
+        public static IDisposable PlanFor(string root)
+        {
+            string? previous = PlanningRoot;
+            PlanningRoot = root;
+            return new Scope(() => PlanningRoot = previous);
+        }
+
+        private sealed class Scope(Action restore) : IDisposable { public void Dispose() => restore(); }
         public static string? ProjectFilePath { get; set; } = null;
         public static string? ProjectName { get; set; } = null;
         public static bool IsProjectBuild => !string.IsNullOrEmpty(ProjectPath);

@@ -257,11 +257,30 @@ public sealed class ProjectModel
         ? new string(module.ModuleName.Select(c => char.IsLetterOrDigit(c) ? char.ToUpperInvariant(c) : '_').ToArray()) + "_API"
         : module.ApiMacro.Length == 0 ? null : module.ApiMacro;
 
-    /// <summary>Build directory of a target (Intermediate/Build/platform/configuration/target).</summary>
-    public string BuildDirectory(string platformName, TargetConfiguration configuration, string targetName) =>
-        Targets.FirstOrDefault(t => t.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))?.ExternalProject is { } external
+    /// <summary>The external project of a target when it is built in that project's own tree ("build": "shared").</summary>
+    public ExternalProject? SharedProjectOf(BuildTarget target) => target.ExternalProject is { } name
+        ? Externals.FirstOrDefault(e => e.Shared && e.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) : null;
+
+    /// <summary>Root of the tree a target builds into: a shared external project's own root, else this project.</summary>
+    public string TargetRoot(BuildTarget target) => SharedProjectOf(target)?.Directory ?? ProjectDirectory;
+
+    /// <summary>
+    /// Build directory of a target (Intermediate/Build/platform/configuration/target): this project's,
+    /// under External/&lt;project&gt; for a local external target, the external project's own for a shared one.
+    /// </summary>
+    public string BuildDirectory(string platformName, TargetConfiguration configuration, string targetName)
+    {
+        var target = Targets.FirstOrDefault(t => t.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase));
+        if (target != null && SharedProjectOf(target) is { } shared)
+            return Path.Combine(shared.Directory, "Intermediate", "Build", platformName, configuration.ToString(), targetName);
+        return target?.ExternalProject is { } external
             ? Path.Combine(ProjectDirectory, "Intermediate", "Build", platformName, configuration.ToString(), "External", external, targetName)
             : Path.Combine(ProjectDirectory, "Intermediate", "Build", platformName, configuration.ToString(), targetName);
+    }
+
+    /// <summary>Binaries/&lt;platform&gt;/&lt;configuration&gt; a target's products go to (a shared external target: its project's).</summary>
+    public string BinariesDirectory(string platformName, TargetConfiguration configuration, BuildTarget target) =>
+        Path.Combine(TargetRoot(target), "Binaries", platformName, configuration.ToString());
 
     /// <summary>Build directory of a built target without loading rules: its own, or under External/&lt;project&gt;.</summary>
     public static string ExistingBuildDirectory(string projectDirectory, string platformName, TargetConfiguration configuration, string targetName)
@@ -467,12 +486,15 @@ public sealed class ProjectModel
         var env = GenericProjectBuilder.CreateCppEnvironment(platform, configuration, target.Legacy ? Modules.Values : []);
         var paths = new BuildStepPlan(ProjectDirectory,
             BuildDirectory(platform.PlatformName, configuration, target.Name),
-            Path.Combine(ProjectDirectory, "Binaries", platform.PlatformName, configuration.ToString()), platform.PlatformName, configuration.ToString(), target.Name, []);
+            BinariesDirectory(platform.PlatformName, configuration, target), platform.PlatformName, configuration.ToString(), target.Name, []);
         // Tokens such as {GeneratedDir} of a module built by a dependency target refer to that target.
         BuildStepPlan PathsFor(ModuleRules item) => Provider(target, item) is { } provider
             ? new BuildStepPlan(ProjectDirectory, BuildDirectory(platform.PlatformName, configuration, provider.Name),
-                Path.Combine(ProjectDirectory, "Binaries", platform.PlatformName, configuration.ToString()), platform.PlatformName, configuration.ToString(), provider.Name, [])
+                BinariesDirectory(platform.PlatformName, configuration, provider), platform.PlatformName, configuration.ToString(), provider.Name, [])
             : paths;
+        // A shared external target compiles exactly as its own project does: nothing of the
+        // application (its Beast include copy, its vcpkg/Conan packages) enters the command line.
+        bool shared = SharedProjectOf(target) != null;
         string Resolve(ModuleRules item, string value) => ResolvePath(item, PathsFor(item).Expand(item, value));
         env.CppVersion = target.Rules.CppVersion;
         env.StaticRuntime = target.Rules.StaticRuntime;
@@ -492,8 +514,8 @@ public sealed class ProjectModel
             env.IncludePaths.AddRange(ProjectSettings.For(ProjectOf(item)).IncludeRoots);
         }
         AddProjectRoots(module);
-        env.IncludePaths.Add(BeastIncludeDirectory(ProjectDirectory));
-        PackageManagers.ApplyCompile(this, platform, configuration, env);
+        env.IncludePaths.Add(BeastIncludeDirectory(TargetRoot(target)));
+        if (!shared) PackageManagers.ApplyCompile(this, platform, configuration, env);
         if (target.Legacy)
         {
             foreach (var item in Modules.Values.Where(m => m.BuildSteps.Count > 0)) env.IncludePaths.Add(paths.GeneratedDirectory(item));

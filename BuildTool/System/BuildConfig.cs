@@ -77,6 +77,14 @@ public sealed class ExternalProjectConfig
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("path")] public string Path { get; set; } = "";
+    /// <summary>
+    /// "local" (default): the application builds the external targets into its own
+    /// Intermediate/.../External/&lt;name&gt; and Binaries. "shared": they build in the external
+    /// project's own Intermediate and Binaries, the tree the external project uses for itself, so
+    /// every application and the project itself use one build (an engine and its editor shared by
+    /// game projects); shared libraries are copied beside the application's products.
+    /// </summary>
+    [JsonPropertyName("build")] public string Build { get; set; } = "local";
 }
 
 /// <summary>iOS devices and the iOS Simulator (Xcode).</summary>

@@ -92,7 +92,7 @@ public sealed class AndroidPlatform : Platform
         {
             bool creatingPch = hasPch && source == environment.PrecompiledHeaderSource;
             bool usesPch = !creatingPch && hasPch && ModuleCompilation.UsesPch(environment, source);
-            string sourceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetRelativePath(GlobalEnvironment.WorkspacePath, source))))[..12];
+            string sourceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetRelativePath(GlobalEnvironment.PlanningWorkspacePath, source))))[..12];
             string objectFile = creatingPch ? pch! : Path.Combine(outputPath, Path.GetFileNameWithoutExtension(source) + "_" + sourceId + ".o");
             if (!creatingPch) output.ObjectFiles.Add(objectFile);
             var args = new List<string> { "-c", "-fPIC", "-ffunction-sections", "-fdata-sections", TargetArgument(), "--sysroot=\"" + Path.Combine(_toolchainRoot, "sysroot") + "\"" };
@@ -105,7 +105,7 @@ public sealed class AndroidPlatform : Platform
             bool portable = BuildConfigManager.Config.Acceleration.PortableClangCache;
             if (portable)
             {
-                foreach (var mapping in new[] { (GlobalEnvironment.WorkspacePath, "/__beast_project"), (NdkRoot, "/__beast_ndk") })
+                foreach (var mapping in new[] { (GlobalEnvironment.PlanningWorkspacePath, "/__beast_project"), (NdkRoot, "/__beast_ndk") })
                     foreach (string spelling in new[] { mapping.Item1, mapping.Item1.Replace('\\', '/') }.Distinct())
                         args.Add($"-ffile-prefix-map=\"{spelling}={mapping.Item2}\"");
                 args.Add("-fdebug-compilation-dir=/__beast_project");

@@ -13,7 +13,7 @@ namespace Beast.BuildTool
     {
         public static string WriteResponseFile(string output, string arguments)
         {
-            string path = Path.Combine(GlobalEnvironment.IntermediatePath, "Build", "Responses", BuildCacheSession.HashText(Path.GetFullPath(output)) + ".rsp");
+            string path = Path.Combine(GlobalEnvironment.PlanningIntermediatePath, "Build", "Responses", BuildCacheSession.HashText(Path.GetFullPath(output)) + ".rsp");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             if (!File.Exists(path) || File.ReadAllText(path) != arguments) File.WriteAllText(path, arguments, new UTF8Encoding(false));
             return path;
