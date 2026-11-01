@@ -92,6 +92,22 @@ internal static class Program
 
     private static int Generate(CommandLine args)
     {
+        if (GetOptionalArgument(args, "workspace") is { } workspace)
+        {
+            // generate --workspace Beast.sln Engine Projects/Game ...: each project's own files, then one solution.
+            var projects = args.Positionals.Skip(1).Select(Path.GetFullPath).ToList();
+            if (projects.Count == 0) return Usage("generate --workspace <file.sln> needs the project paths.");
+            foreach (string item in projects)
+                if (!Directory.Exists(Path.Combine(item, "Source"))) return Usage($"Not a Beast project (no Source directory): {item}");
+            if (!HostPlatform.IsWindows)
+            {
+                Log.TraceInfo("Visual Studio workspaces are generated on Windows hosts only.");
+                return 0;
+            }
+            var solutions = projects.Select(p => SolutionGenerator.Generate(p, new DirectoryInfo(p).Name)).ToList();
+            Log.TraceInfo("Generated " + SolutionGenerator.WriteWorkspace(workspace, solutions));
+            return 0;
+        }
         string? project = ResolveProject(args, 1);
         if (project == null) return Usage("Project path is required.");
         foreach (string file in IdeGenerator.Generate(project)) Log.TraceInfo("Generated " + file);
@@ -307,6 +323,7 @@ Beast BuildTool
   beast new <Name> [--path <directory>] [--template <directory>]   (custom template: files copied, {{ProjectName}} replaced)
   beast module <Name> [project-path]   (defaults to the current project root; also accepts --project <path>)
   beast generate [project-path]   (Visual Studio on Windows, Xcode on macOS, .vscode everywhere)
+  beast generate --workspace <file.sln> <project-path> [<project-path> ...]   (one Visual Studio solution for several projects)
   beast migrate [project-path]    (legacy project without *.Target.cs -> explicit target)
   beast build [project-path] [--target <name>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--arch x64|arm64|arm64-v8a|x86_64] [--config Debug|Development|Release] [--option NAME=VALUE ...] [--stop-on-error] [--run --avd <name> --wait --headless]
   beast run [project-path] [--target <app>] [--platform Windows|Linux|Mac|IOS|IOSSimulator|Android] [--config ...] [--avd <name>] [--device <serial>] [--no-build] [--wait] [--headless]

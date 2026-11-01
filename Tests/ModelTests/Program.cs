@@ -240,6 +240,32 @@ Test("external projects", () =>
     finally { BuildConfigManager.Config.ExternalProjects = []; }
     Check(File.Exists(Path.Combine(app, "SDK.vcxproj")) && File.ReadAllText(Path.Combine(app, "App.sln")).Contains("SDK.vcxproj"), "SDK.vcxproj");
     Check(File.ReadAllText(Path.Combine(app, "App.vcxproj.filters")).Contains(@"External\SDK\Source\Widgets"), "external sources in filters");
+
+    // "build": "shared": the SDK target builds in the SDK's own tree.
+    var sharedModel = ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "../SDK", Build = "shared" }]);
+    var sharedSdk = sharedModel.Targets.Single(t => t.Name == "SDK");
+    Check(sharedModel.SharedProjectOf(sharedSdk)?.Directory == sdk && sharedModel.TargetRoot(sharedSdk) == sdk, "shared external project");
+    Check(sharedModel.BuildDirectory(arm64.PlatformName, TargetConfiguration.Debug, "SDK") == Path.Combine(sdk, "Intermediate", "Build", arm64.PlatformName, "Debug", "SDK"), "shared build directory");
+    Check(sharedModel.BinariesDirectory(arm64.PlatformName, TargetConfiguration.Debug, sharedSdk) == Path.Combine(sdk, "Binaries", arm64.PlatformName, "Debug"), "shared binaries");
+    Check(sharedModel.BinariesDirectory(arm64.PlatformName, TargetConfiguration.Debug, sharedModel.SelectTarget(null)) == Path.Combine(app, "Binaries", arm64.PlatformName, "Debug"), "application binaries");
+    Expect(() => ProjectModel.Load(app, arm64, TargetConfiguration.Debug, [new() { Name = "SDK", Path = "../SDK", Build = "copy" }]), "must be \"local\" or \"shared\"");
+
+    // Workspace: SDK and App in one solution; SDK appears once (its own project), each in a folder;
+    // --option values given to generate reach the IDE's build commands.
+    BuildOptions.SetOverrides(["RHI=DX12"]);
+    SolutionGenerator.SolutionInfo appSolution, sdkSolution;
+    BuildConfigManager.Config.ExternalProjects = externals;
+    try { appSolution = SolutionGenerator.Generate(app, "App", arm64, x64, arm64); }
+    finally { BuildConfigManager.Config.ExternalProjects = []; BuildOptions.SetOverrides([]); }
+    Check(File.ReadAllText(Path.Combine(app, "App.vcxproj")).Contains("--option &quot;RHI=DX12&quot;"), "--option in IDE build commands");
+    Write(Path.Combine(sdk, "Config", "BuildConfig.json"), "{}");
+    sdkSolution = SolutionGenerator.Generate(sdk, "SDK", arm64, x64, arm64);
+    string workspace = SolutionGenerator.WriteWorkspace(Path.Combine(root, "Ext", "Workspace.sln"), [sdkSolution, appSolution]);
+    string text = File.ReadAllText(workspace);
+    Check(System.Text.RegularExpressions.Regex.Matches(text, "\"SDK\", \"[^\"]*SDK\\.vcxproj\"").Count == 1, "SDK once in the workspace");
+    Check(text.Contains(@"SDK\SDK.vcxproj") && !text.Contains(@"App\SDK.vcxproj") && text.Contains(@"App\App.vcxproj"), "workspace projects from their own projects");
+    Check(text.Contains("2150E333-8FDC-42A3-9474-1A3956D46DE8") && text.Contains("NestedProjects") && text.Contains("Android Debug|x64"), "workspace folders and configurations");
+    Expect(() => SolutionGenerator.WriteWorkspace(Path.Combine(root, "Ext", "Twice.sln"), [appSolution, appSolution]), "unique project names");
 });
 
 Test("Android Java source destinations", () =>
