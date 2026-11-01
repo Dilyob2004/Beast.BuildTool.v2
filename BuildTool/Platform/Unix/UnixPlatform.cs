@@ -90,7 +90,7 @@ public abstract class UnixPlatform : Platform
         {
             bool creatingPch = hasPch && source == environment.PrecompiledHeaderSource;
             bool usesPch = !creatingPch && hasPch && ModuleCompilation.UsesPch(environment, source);
-            string sourceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetRelativePath(GlobalEnvironment.PlanningWorkspacePath, source))))[..12];
+            string sourceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetRelativePath(GlobalEnvironment.WorkspacePath, source))))[..12];
             string objectFile = creatingPch ? pch! : Path.Combine(outputPath, Path.GetFileNameWithoutExtension(source) + "_" + sourceId + ".o");
             if (!creatingPch) output.ObjectFiles.Add(objectFile);
             var args = new List<string> { "-c", "-fPIC", "-ffunction-sections", "-fdata-sections" };

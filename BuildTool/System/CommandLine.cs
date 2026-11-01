@@ -26,23 +26,7 @@ namespace Beast.BuildTool
         /// <summary>Every option the tool understands; others are reported as likely typos.</summary>
         public static readonly IReadOnlySet<string> KnownOptions = new HashSet<string>(BooleanFlags.Concat(new[]
             { "path", "project", "target", "platform", "arch", "config", "avd", "device", "queue", "project-root", "compiler-root",
-              "key-env", "idle-timeout", "reserve-mb", "prefix", "output", "template", "on-success", "debounce", "max-builds",
-              "option", "format", "workspace" }), StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Options that may be given several times; every value is kept (GetArguments).</summary>
-        public static readonly IReadOnlySet<string> RepeatableOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "option" };
-        private readonly Dictionary<string, List<string>> _repeated = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Every value of a repeatable option, in command-line order.</summary>
-        public IReadOnlyList<string> GetArguments(string name) => _repeated.TryGetValue(name, out var values) ? values : [];
-
-        private void SetArgument(string key, string value)
-        {
-            _arguments[key] = value;
-            if (!RepeatableOptions.Contains(key)) return;
-            if (!_repeated.TryGetValue(key, out var values)) _repeated[key] = values = [];
-            values.Add(value);
-        }
+              "key-env", "idle-timeout", "reserve-mb", "prefix", "output", "template", "on-success", "debounce", "max-builds" }), StringComparer.OrdinalIgnoreCase);
 
         public IEnumerable<string> UnknownOptions => _arguments.Keys.Concat(_flags).Where(k => !KnownOptions.Contains(k)).Distinct(StringComparer.OrdinalIgnoreCase);
 
@@ -65,12 +49,12 @@ namespace Beast.BuildTool
                     {
                         // --key=value format
                         var parts = key.Split(new[] { '=' }, 2);
-                        SetArgument(parts[0], parts[1]);
+                        _arguments[parts[0]] = parts[1];
                     }
                     else if (!BooleanFlags.Contains(key) && i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                     {
                         // --key value format
-                        SetArgument(key, args[i + 1]);
+                        _arguments[key] = args[i + 1];
                         i++;
                     }
                     else
@@ -88,12 +72,12 @@ namespace Beast.BuildTool
                     {
                         // -k=value format
                         var parts = key.Split(new[] { '=' }, 2);
-                        SetArgument(parts[0], parts[1]);
+                        _arguments[parts[0]] = parts[1];
                     }
                     else if (!BooleanFlags.Contains(key) && i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                     {
                         // -k value format
-                        SetArgument(key, args[i + 1]);
+                        _arguments[key] = args[i + 1];
                         i++;
                     }
                     else

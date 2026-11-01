@@ -78,25 +78,6 @@ symlink/junction в выходном пути отклоняются. Рекур
 pwsh -File Tests/BuildSteps.ps1 -Android -AndroidSdk 'C:/Users/you/AppData/Local/Android/Sdk'
 ```
 
-### Шаг, запускающий программу проекта
-
-`Executable = "target:<Имя>"` — программа цели-приложения проекта (или внешнего проекта), например
-упаковщик ресурсов:
-
-```csharp
-var pak = new BuildStep { Name = "Pak", Executable = "target:PakTool", AffectsCompilation = false };
-pak.Arguments.AddRange(new[] { "{ModuleDir}/Content", "{GeneratedDir}/content.pak" });
-pak.Inputs.Add("Content/scene.txt");
-pak.Outputs.Add("content.pak");
-BuildSteps.Add(pak);
-RuntimeDependencies.Add("{GeneratedDir}/content.pak", "content.pak");
-```
-
-Инструмент собирается в том же графе (см. [Граф сборки](graph.md)) для этой машины: для платформы сборки,
-если её программы здесь запускаются, иначе (Android, iOS, другая архитектура) — для платформы хоста; в той же
-конфигурации. Шаг ждёт его линковку и перезапускается, когда инструмент меняется. Инструмент должен быть
-`Application` (не тестом); инструмент, который нужен собственной цели, — ошибка (цикл).
-
 ## Ресурсы приложения (все платформы)
 
 Текстуры, звуки, уровни, конфиги — одно объявление в `*.Build.cs`, без условий по платформе:

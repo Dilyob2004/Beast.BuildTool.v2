@@ -60,7 +60,7 @@ namespace Beast.BuildTool
             {
                 var originalColor = Console.ForegroundColor;
                 Console.ForegroundColor = Сolors.TryGetValue(eventType, out var color) ? color : originalColor;
-                (Log.UseStandardError ? Console.Error : Console.Out).WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {eventType,-12} {source} - {message}");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {eventType,-12} {source} - {message}");
                 Console.ForegroundColor = originalColor;
             }
         }
@@ -71,7 +71,7 @@ namespace Beast.BuildTool
             {
                 var originalColor = Console.ForegroundColor;
                 Console.ForegroundColor = Сolors.TryGetValue(eventType, out var color) ? color : originalColor;
-                (Log.UseStandardError ? Console.Error : Console.Out).WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {eventType,-12} {source} - {string.Format(format ?? string.Empty, args ?? Array.Empty<object?>())}");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {eventType,-12} {source} - {string.Format(format ?? string.Empty, args ?? Array.Empty<object?>())}");
                 Console.ForegroundColor = originalColor;
             }
         }
@@ -85,9 +85,6 @@ namespace Beast.BuildTool
 
         private static bool _isInitialized;
         private static bool _disposed;
-
-        /// <summary>Messages go to stderr, keeping stdout for a command's data (beast graph).</summary>
-        public static bool UseStandardError { get; set; }
 
 
         public static void Init(bool logToFile = false)

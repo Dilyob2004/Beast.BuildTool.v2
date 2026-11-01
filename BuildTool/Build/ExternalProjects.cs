@@ -6,8 +6,6 @@ namespace Beast.BuildTool;
 /// <summary>A project whose targets and modules another project uses (BuildConfig.json externalProjects).</summary>
 public sealed record ExternalProject(string Name, string Directory)
 {
-    /// <summary>Built in its own Intermediate/Binaries ("build": "shared"), not inside the application.</summary>
-    public bool Shared { get; init; }
     public string SourceDirectory => Path.Combine(Directory, "Source");
 }
 
@@ -37,19 +35,11 @@ public static class ExternalProjects
                     throw new InvalidOperationException($"{ConfigPath(owner)}: external project '{entry.Name}' not found: {Path.Combine(directory, "Source")} does not exist.");
                 if (visiting.Contains(directory, StringComparer.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"External project cycle: {string.Join(" -> ", visiting.Append(directory))}");
-                bool shared = (entry.Build ?? "local").ToLowerInvariant() switch
-                {
-                    "local" or "" => false,
-                    "shared" => true,
-                    _ => throw new InvalidOperationException($"{ConfigPath(owner)}: external project '{entry.Name}': \"build\" must be \"local\" or \"shared\" (got '{entry.Build}').")
-                };
                 var same = result.FirstOrDefault(p => p.Directory.Equals(directory, StringComparison.OrdinalIgnoreCase));
                 if (same != null)
                 {
                     if (!same.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException($"External project {directory} is named both '{same.Name}' and '{entry.Name}'.");
-                    if (same.Shared != shared)
-                        throw new InvalidOperationException($"External project '{entry.Name}' ({directory}) is used both with \"build\": \"shared\" and \"local\".");
                     continue;
                 }
                 if (result.FirstOrDefault(p => p.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase)) is { } other)
@@ -57,7 +47,7 @@ public static class ExternalProjects
                 visiting.Add(directory);
                 Visit(directory, ReadConfig(directory));
                 visiting.RemoveAt(visiting.Count - 1);
-                result.Add(new ExternalProject(entry.Name, directory) { Shared = shared });
+                result.Add(new ExternalProject(entry.Name, directory));
             }
         }
         Visit(projectDirectory, configured ?? ReadConfig(projectDirectory));
@@ -79,7 +69,6 @@ public static class ExternalProjects
             {
                 Name = e.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
                 Path = e.TryGetProperty("path", out var directory) ? directory.GetString() ?? "" : "",
-                Build = e.TryGetProperty("build", out var build) ? build.GetString() ?? "local" : "local",
             }).ToList();
         }
         catch (JsonException ex) { throw new InvalidOperationException($"Cannot read {path}: {ex.Message}", ex); }

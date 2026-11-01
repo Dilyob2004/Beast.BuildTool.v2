@@ -32,26 +32,13 @@ namespace Beast.BuildTool
                 }
             }
         }
-        /// <summary>
-        /// Vendored libraries of the project whose rules are evaluated (an external project's own inside
-        /// its rules): "thirdPartyDirectory" of its Config/BuildConfig.json, else ThirdParty, or
-        /// Source/ThirdParty when only that one exists.
-        /// </summary>
-        public string ThirdPartyDirectory => ProjectDirectory != null ? ProjectSettings.For(ProjectDirectory).ThirdPartyDirectory : GlobalEnvironment.ThirdPartyPath;
-
-        /// <summary>
-        /// Build options: "options" of the built project's Config/BuildConfig.json, overridden by
-        /// --option NAME=VALUE. The same values are seen by the rules of external projects.
-        /// </summary>
-        public IReadOnlyDictionary<string, string> Options => BuildOptions.Current;
-
-        /// <summary>Value of a build option, or <paramref name="defaultValue"/> when it is not set.</summary>
-        public string GetOption(string name, string defaultValue = "") => BuildOptions.Current.TryGetValue(name, out var value) ? value : defaultValue;
-
-        /// <summary>A boolean build option: true/1/yes/on or false/0/no/off (case-insensitive); anything else is an error.</summary>
-        public bool GetBoolOption(string name, bool defaultValue = false) => BuildOptions.Current.TryGetValue(name, out var value) ? BuildOptions.ParseBool(name, value) : defaultValue;
-
-        public bool HasOption(string name) => BuildOptions.Current.ContainsKey(name);
+        public string ThirdPartyDirectory
+        {
+            get
+            {
+                return GlobalEnvironment.ThirdPartyPath;
+            }
+        }
         private readonly string? _projectDirectory;
         public string SourceDirectory => _projectDirectory != null ? System.IO.Path.Combine(_projectDirectory, "Source") : GlobalEnvironment.SourcePath;
         /// <summary>Root of the project whose rules are evaluated (an external project's root inside its own rules).</summary>
@@ -137,7 +124,7 @@ namespace Beast.BuildTool
         public HashSet<string> GeneratedSources { get; } = new(StringComparer.OrdinalIgnoreCase);
         [Obsolete("Not used by Beast. Use PublicDependencies/PrivateDependencies, InputLibraries or VcpkgLibraries.")]
         public HashSet<string> DirectoryDependencies { get; } = new HashSet<string>();
-        [Obsolete("Rules of the first Beast BuildTool: treated as PublicDependencies (a warning is printed). Use PublicDependencies; 'beast migrate' rewrites it.")]
+        [Obsolete("Not used by Beast (and misspelled). Use InputLibraries, VcpkgLibraries or a Conan/vcpkg manifest.")]
         public HashSet<string> ThirdPartyDependices { get; } = new HashSet<string>();
 
         /// <summary>Compiler settings for this module's sources; unset values inherit TargetRules.CompileOptions.</summary>
